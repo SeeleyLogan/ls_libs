@@ -67,9 +67,11 @@
     #define pcommit_range_win32 ls_pcommit_range_win32
 
     // chunk memory allocator
-    #define chunk_allocator_t   ls_chunk_allocator_t
-    #define cmalloc_t           ls_cmalloc_t
-    #define new_chunk_allocator ls_new_chunk_allocator
+    #define cmalloc_t               ls_cmalloc_t
+    #define cmalloc                 ls_cmalloc
+    #define cmalloc_write           ls_cmalloc_write
+    #define cmalloc_index_to_addr   ls_cmalloc_index_to_addr
+    #define cmalloc_set_size        ls_cmalloc_set_size
 #endif
 
 #ifndef LS_CHUNK_SIZE
@@ -77,20 +79,18 @@
 #endif
 
 typedef char _ls_chunk[LS_CHUNK_SIZE];
-typedef struct _ls_chunk_allocator_s ls_chunk_allocator_t;
 
 // chunk memory allocator
 typedef struct
 {
-    ls_chunk_allocator_t*   _chunk_allocator;  // the chunk allocator this cmalloc was made with
-    size_t*                 _chunk_indices;    // address of the chunk indices
-    size_t                  _id;               // index of the cmalloc to the chunk indices
-    size_t                  _size;             // size (dynamic) of the allocation in bytes
-    char                    success;           // success code of [ls_cmalloc()]
+    size_t*                 _chunk_indices_vmalloc;  // address of the chunk indices' vmalloc
+    size_t                  _id;                     // index of the cmalloc to the chunk indices
+    size_t                  _size;                   // size (dynamic) of the allocation in bytes
+    char                    success;                 // success code of [ls_cmalloc()]
 }
 ls_cmalloc_t;
 
-struct _ls_chunk_allocator_s
+typedef struct
 {
     _ls_chunk*      _chunk_v;                  // vmalloc where chunks reside
     size_t          _chunk_c;                  // index of last committed chunk + 1
@@ -99,8 +99,8 @@ struct _ls_chunk_allocator_s
     ls_cmalloc_t    _chunk_indices_vmalloc_v;  // array of pointers to vmallocs (to store chunk indices)
     ls_cmalloc_t    _deleted_chunk_v;          // array of deleted chunk IDs
     ls_cmalloc_t    _deleted_cmalloc_v;        // array of deleted cmalloc IDs
-    char            success;                   // success code of [ls_new_chunk_allocator()]
-};
+}
+_ls_chunk_allocator_t;
 
 #ifdef __cplusplus
 extern "C"
@@ -114,7 +114,11 @@ extern void  ls_pfree       (void* ptr);
 extern void  ls_pfree_range (void* ptr, size_t offset, size_t range);
 
 // chunk memory allocator
-extern ls_chunk_allocator_t ls_new_chunk_allocator();
+extern ls_cmalloc_t ls_cmalloc              ();
+extern void*        ls_cmalloc_index_to_addr(ls_cmalloc_t* cmalloc, size_t i);
+extern size_t       ls_cmalloc_write        (ls_cmalloc_t* cmalloc, size_t dst_i, void* src, size_t size);
+extern char         _ls_cmalloc_grow        (ls_cmalloc_t* cmalloc, size_t new_size);
+extern char         _ls_cmalloc_shrink      (ls_cmalloc_t* cmalloc, size_t new_size);
 
 #ifdef _WIN32
     extern void ls_pcommit_range_win32(void* ptr, size_t offset, size_t range);
@@ -128,6 +132,8 @@ extern ls_chunk_allocator_t ls_new_chunk_allocator();
 
 unsigned long _ls_page_size();
 size_t        _ls_memtotal();
+
+char _ls_init_chunk_allocator();  // returns success or fail
 
 #endif  // #ifndef LS_MALLOCS_H
 
@@ -221,11 +227,17 @@ inline void ls_pcommit_range_win32(void* ptr, size_t offset, size_t range)
 }
 #endif
 
-ls_chunk_allocator_t ls_new_chunk_allocator()
+char _ls_chunk_allocator_initialized = 0;
+_ls_chunk_allocator_t _chunk_allocator;
+
+char _ls_init_chunk_allocator()
 {
+    if (_ls_chunk_allocator_initialized)
+        return 1;
+    
     size_t mem_total = _ls_memtotal();
     
-    ls_chunk_allocator_t chunk_allocator =
+    _chunk_allocator = (_ls_chunk_allocator_t)
     {
         ._chunk_v                 = ls_vmalloc(),
         ._chunk_c                 = 1,
@@ -245,39 +257,111 @@ ls_chunk_allocator_t ls_new_chunk_allocator()
         {
             ._id   = 2,
             ._size = 0
-        },
-        .success = 1
+        }
     };
     
-    if (!chunk_allocator._chunk_v)
-        return chunk_allocator;
+    if (!_chunk_allocator._chunk_v)
+        return 0;
     
     void* first_chunk_indices_vmalloc = ls_vmalloc();
     if (!first_chunk_indices_vmalloc)
     {
-        ls_vfree(chunk_allocator._chunk_v);
-        return chunk_allocator;
+        ls_vfree(_chunk_allocator._chunk_v);
+        return 0;
     }
     
-    chunk_allocator._chunk_indices_vmalloc_v._chunk_allocator = &chunk_allocator;
-    chunk_allocator._deleted_chunk_v        ._chunk_allocator = &chunk_allocator;
-    chunk_allocator._deleted_cmalloc_v      ._chunk_allocator = &chunk_allocator;
-    
-    ls_pcommit_range_win32(chunk_allocator._chunk_v, 0, LS_CHUNK_SIZE);
-    ((void**) (chunk_allocator._chunk_v[0]))[0] = first_chunk_indices_vmalloc;
+    ls_pcommit_range_win32(_chunk_allocator._chunk_v, 0, LS_CHUNK_SIZE);
+    ((void**) (_chunk_allocator._chunk_v[0]))[0] = first_chunk_indices_vmalloc;
     
     ls_pcommit_range_win32(first_chunk_indices_vmalloc, 0, LS_CHUNK_SIZE);
     ((size_t*) first_chunk_indices_vmalloc)[0] = 0;
-
-    chunk_allocator._chunk_indices_vmalloc_v._chunk_indices = first_chunk_indices_vmalloc;
-    chunk_allocator._deleted_chunk_v        ._chunk_indices = first_chunk_indices_vmalloc;
-    chunk_allocator._deleted_cmalloc_v      ._chunk_indices = first_chunk_indices_vmalloc;
     
-    chunk_allocator.success = 0;
-    return chunk_allocator;
+    _chunk_allocator._chunk_indices_vmalloc_v._chunk_indices_vmalloc = first_chunk_indices_vmalloc;
+    _chunk_allocator._deleted_chunk_v        ._chunk_indices_vmalloc = first_chunk_indices_vmalloc;
+    _chunk_allocator._deleted_cmalloc_v      ._chunk_indices_vmalloc = first_chunk_indices_vmalloc;
+    
+    _ls_chunk_allocator_initialized = 1;
+    return 1;
 }
 
-#define ls_cmalloc_index_to_addr(cmalloc, i) (&((*((char**) ((cmalloc)->_chunk_indices + (_ls_memtotal() / LS_CHUNK_SIZE * ((cmalloc)->_id % (LS_CHUNK_SIZE >> 3)) + ((cmalloc)->_id / LS_CHUNK_SIZE))))) + (cmalloc)->_id % LS_CHUNK_SIZE))
+#define ls_cmalloc_set_size(cmalloc, size) ((size > cmalloc->_size) ? _ls_cmalloc_grow(cmalloc, size) : _ls_cmalloc_shrink(cmalloc, size))
+
+ls_cmalloc_t ls_cmalloc()
+{
+    ls_cmalloc_t cm =
+    {
+        ._size   = 0,
+        .success = 0
+    };
+
+    if (!_ls_chunk_allocator_initialized && !_ls_init_chunk_allocator())
+        return cm;
+
+    if (_chunk_allocator._deleted_cmalloc_v._size > 0)
+    {
+        cm._id = *(size_t*) ls_cmalloc_index_to_addr(&_chunk_allocator._deleted_cmalloc_v, _chunk_allocator._deleted_cmalloc_v._size);
+        _chunk_allocator._deleted_cmalloc_v._size -= 8;  // eventually replace with shrink
+    }
+    else
+    {
+        cm._id = _chunk_allocator._cmalloc_c;
+        _chunk_allocator._cmalloc_c++;
+    }
+
+    if (cm._id / (LS_CHUNK_SIZE >> 3) > _chunk_allocator._chunk_indices_vmalloc_v._size / 8)
+    {
+        void* new_chunk_indices_vmalloc = ls_vmalloc();
+        if (!new_chunk_indices_vmalloc)
+            return cm;
+
+        ls_cmalloc_write(&_chunk_allocator._chunk_indices_vmalloc_v, _chunk_allocator._chunk_indices_vmalloc_v._size, new_chunk_indices_vmalloc, sizeof(void*));
+    }
+
+    cm.success = 1;
+    return cm;
+}
+
+// returns amount of bytes written
+inline size_t ls_cmalloc_write(ls_cmalloc_t* cmalloc, size_t dst_i, void* src, size_t size)
+{
+    if (dst_i > cmalloc->_size)
+    {
+        size  = dst_i - cmalloc->_size;
+        dst_i = cmalloc->_size;
+    }
+
+    if (dst_i + size > cmalloc->_size && !ls_cmalloc_set_size(cmalloc, dst_i + size))
+        return 0;
+    
+    return 1;
+}
+
+inline void* ls_cmalloc_index_to_addr(ls_cmalloc_t* cmalloc, size_t i)
+{
+    size_t chunk_indices_i = cmalloc->_id - _LS_MULT_TO(cmalloc->_id, LS_CHUNK_SIZE >> 3);
+    size_t chunk_i         = i / LS_CHUNK_SIZE;
+    size_t byte_i          = i % LS_CHUNK_SIZE;
+
+    void*  chunk_indices = (void*) (((size_t) cmalloc->_chunk_indices_vmalloc) + chunk_indices_i * (LS_CHUNK_SIZE >> 3));
+    size_t chunk_id      = ((size_t*) chunk_indices)[chunk_i];
+
+    return &_chunk_allocator._chunk_v[chunk_id];
+}
+
+inline char _ls_cmalloc_grow(ls_cmalloc_t* cmalloc, size_t new_size)
+{
+    size_t chunks_needed = (_LS_MULT_TO(new_size, LS_CHUNK_SIZE) - _LS_MULT_TO(cmalloc->_size, LS_CHUNK_SIZE)) / LS_CHUNK_SIZE;
+
+    printf("%llu\n", chunks_needed);
+
+    return 0;
+}
+
+inline char _ls_cmalloc_shrink(ls_cmalloc_t* cmalloc, size_t new_size)
+{
+    return 0;
+}
+
 
 inline unsigned long _ls_page_size()
 {
