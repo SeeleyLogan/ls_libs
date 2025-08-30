@@ -25,8 +25,7 @@
  *
  * 		ls_chunk_arena_t ls_chunk_arena_init(ls_vptr_t memory, ls_u64_t memory_size, ls_u64_t chunk_size) - arena_init
  *			[memory] must be aligned to [chunk_size]
- *			and by divisible by such. [chunk_size]
- *			must be a power of 2.
+ *			and by divisible by such.
  *
  *		ls_vptr_t ls_chunk_arena_get_chunk(ls_chunk_arena_t *chunk_arena, ls_u32_t *status) - arena_get_chunk
  *			[status] is out
@@ -133,7 +132,7 @@ inline ls_chunk_arena_t ls_chunk_arena_init(ls_vptr_t memory, ls_u64_t memory_si
     ls_chunk_arena_t chunk_arena = 
     {
         ._memory        		= memory,
-        ._max_chunk_c   		= memory_size >> __builtin_ctzll(chunk_size),
+        ._max_chunk_c   		= memory_size / chunk_size,
 		._chunk_size			= chunk_size,
 		._chunk_c				= 0,
 		._next_committed_chunk 	= 1,
@@ -151,7 +150,7 @@ inline ls_vptr_t ls_chunk_arena_get_chunk(ls_chunk_arena_t *chunk_arena, ls_u32_
 		*status = LS_CHUNK_ARENA_MEM_FULL;
 		return LS_NULL;
 	}
-	else if ((chunk_arena->_max_chunk_c >> 1) <= chunk_arena->_chunk_c + 1)
+	else if (chunk_arena->_max_chunk_c / 2 <= chunk_arena->_chunk_c + 1)
 		*status = LS_CHUNK_ARENA_MEM_HALF;
 	else
 		*status = LS_CHUNK_ARENA_SUCCESS;
@@ -185,7 +184,7 @@ inline void ls_chunk_arena_delete_chunk(ls_chunk_arena_t *chunk_arena, ls_vptr_t
 {
 	chunk_ptr = (ls_vptr_t) _LS_MULT_TO((ls_u64_t) chunk_ptr, chunk_arena->_chunk_size);
 
-	ls_u64_t chunk_i = ((ls_u64_t) (chunk_ptr - chunk_arena->_memory)) >> __builtin_ctzll(chunk_arena->_chunk_size);
+	ls_u64_t chunk_i = ((ls_u64_t) (chunk_ptr - chunk_arena->_memory)) / chunk_arena->_chunk_size;
 
 	((ls_ptr_t) chunk_ptr)[0] = chunk_arena->_last_deleted_chunk;
 
