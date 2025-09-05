@@ -25,20 +25,16 @@
  *
  * 		ls_chunk_arena_t ls_chunk_arena_init(ls_vptr_t memory, ls_u64_t memory_size, ls_u64_t chunk_size) - arena_init
  *			[memory] must be aligned to [chunk_size]
- *			and by divisible by such.
+ *			and by divisible by such. [chunk_size]
+ *			and [memory] must be a power of 2.
  *
  *		ls_vptr_t ls_chunk_arena_get_chunk(ls_chunk_arena_t *chunk_arena, ls_u32_t *status) - arena_get_chunk
  *			[status] is out
  *			[*status] = LS_CHUNK_ARENA_SUCCESS
- *			[*status] = LS_CHUNK_ARENA_MEM_HALF -> at least half of given memory is used[1]
- *			[*status] = LS_CHUNK_ARENA_MEM_FULL -> could not fetch chunk, none left[2]
+ *			[*status] = LS_CHUNK_ARENA_MEM_FULL -> could not fetch chunk: none left. [return] will also be LS_NULL
  *
  *		void ls_chunk_arena_delete_chunk(ls_chunk_arena_t *chunk_arena, ls_vptr_t chunk_ptr) - arena_delete_chunk
  *			[chunk_ptr] must have been returned by [ls_chunk_arena_get_chunk]
- *
- *		[1] Deleted chunks don't count
- *
- *		[2] [return] will also be LS_NULL
  */
 
 
@@ -88,8 +84,7 @@
 #define _LS_CHUNK_ARENA_RESULT_SIGNATURE(tag) (0x43484100 | tag)
 
 #define LS_CHUNK_ARENA_SUCCESS  0
-#define LS_CHUNK_ARENA_MEM_HALF	_LS_CHUNK_ARENA_RESULT_SIGNATURE(2)
-#define LS_CHUNK_ARENA_MEM_FULL	_LS_CHUNK_ARENA_RESULT_SIGNATURE(3)
+#define LS_CHUNK_ARENA_MEM_FULL	_LS_CHUNK_ARENA_RESULT_SIGNATURE(2)
 
 // IMPORTANT: arena allocator expects user to provide memory
 // meaning it requires a function to handle said memory
@@ -132,7 +127,7 @@ inline ls_chunk_arena_t ls_chunk_arena_init(ls_vptr_t memory, ls_u64_t memory_si
     ls_chunk_arena_t chunk_arena = 
     {
         ._memory        		= memory,
-        ._max_chunk_c   		= memory_size / chunk_size,
+        ._max_chunk_c   		= memory_size >> __builtin_ctzll(chunk_size),
 		._chunk_size			= chunk_size,
 		._chunk_c				= 0,
 		._next_committed_chunk 	= 1,
@@ -150,8 +145,6 @@ inline ls_vptr_t ls_chunk_arena_get_chunk(ls_chunk_arena_t *chunk_arena, ls_u32_
 		*status = LS_CHUNK_ARENA_MEM_FULL;
 		return LS_NULL;
 	}
-	else if (chunk_arena->_max_chunk_c / 2 <= chunk_arena->_chunk_c + 1)
-		*status = LS_CHUNK_ARENA_MEM_HALF;
 	else
 		*status = LS_CHUNK_ARENA_SUCCESS;
 
@@ -184,7 +177,7 @@ inline void ls_chunk_arena_delete_chunk(ls_chunk_arena_t *chunk_arena, ls_vptr_t
 {
 	chunk_ptr = (ls_vptr_t) _LS_MULT_TO((ls_u64_t) chunk_ptr, chunk_arena->_chunk_size);
 
-	ls_u64_t chunk_i = ((ls_u64_t) (chunk_ptr - chunk_arena->_memory)) / chunk_arena->_chunk_size;
+	ls_u64_t chunk_i = ((ls_u64_t) (chunk_ptr - chunk_arena->_memory)) >> __builtin_ctzll(chunk_arena->_chunk_size);
 
 	((ls_ptr_t) chunk_ptr)[0] = chunk_arena->_last_deleted_chunk;
 
@@ -197,10 +190,18 @@ inline void ls_chunk_arena_delete_chunk(ls_chunk_arena_t *chunk_arena, ls_vptr_t
 
 
 /*
- * Copyright 2025, Logan Seeley
+ * Copyright (C) 2025  Logan Seeley
  *
- * Copying and distribution of this file, with or without modification,
- * are permitted in any medium without royalty, provided the copyright
- * notice and this notice are preserved. This file is offered as-is, 
- * without any warranty.
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
