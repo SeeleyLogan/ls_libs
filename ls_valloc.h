@@ -1,5 +1,5 @@
 /*
- * ls_valloc.h - v1.0.0 - virtual memory allocator - Logan Seeley 2025
+ * ls_valloc.h - v1.1.0 - virtual memory allocator - Logan Seeley 2025
  *
  * Documentation
  *
@@ -36,6 +36,7 @@
 
 #include <stddef.h>
 #include <stdio.h>
+
 
 #ifdef _WIN32
     #include <windows.h>
@@ -74,7 +75,7 @@
 #endif
 
 
-#ifndef LS_VALLOCS_NO_SHORT_NAMES
+#ifndef LS_VALLOC_NO_SHORT_NAMES
     
     #define vmalloc             ls_valloc_vmalloc
     #define vfree               ls_valloc_vfree
@@ -84,6 +85,10 @@
 
 #endif
 
+
+#ifndef _LS_CAST
+	#define _LS_CAST(v, t) ((t) (v))
+#endif
 
 #ifndef _LS_MULT_TO
     #define _LS_MULT_TO(n, m) ((n) - ((n)%(m)))  // rounds n down to nearest multiple of m, integers only
@@ -100,6 +105,10 @@ void        ls_valloc_pfree_range(ls_vptr_t ptr, ls_u64_t offset, ls_u64_t range
 
     #define ls_valloc_pcommit_range(...) _ls_valloc_pcommit_range_win32(__VA_ARGS__)
 #else
+    #define _LS_VALLOC_MADV_DONTNEED 4
+
+    static long _ls_valloc_madvise(void *addr, size_t length, int advice);
+
     #define ls_valloc_pcommit_range(...)  // still good practice to call this
 #endif
 
@@ -135,7 +144,7 @@ inline void ls_valloc_pfree(ls_vptr_t ptr)
     #ifdef _WIN32
         VirtualFree(ptr, _ls_valloc_memtotal(), MEM_DECOMMIT);
     #else
-        madvise(ptr, _ls_valloc_memtotal(), MADV_DONTNEED);
+        _ls_valloc_madvise(ptr, _ls_valloc_memtotal(), _LS_VALLOC_MADV_DONTNEED);
     #endif
 }
 
@@ -154,14 +163,15 @@ inline void ls_valloc_pfree_range(ls_vptr_t ptr, ls_u64_t offset, ls_u64_t range
         range = _ls_valloc_memtotal() - offset;
     
     #ifdef _WIN32
-        VirtualFree((ls_vptr_t) (((ls_u64_t) ptr) + offset), range, MEM_DECOMMIT);
+        VirtualFree(_LS_CAST(_LS_CAST(ptr, ls_u64_t) + offset, ls_vptr_t), range, MEM_DECOMMIT);
     #else
-        madvise((ls_vptr_t) (((ls_u64_t) ptr) + offset), range, MADV_DONTNEED);
+        _ls_valloc_madvise(_LS_CAST(_LS_CAST(ptr, ls_u64_t) + offset, ls_vptr_t), range, _LS_VALLOC_MADV_DONTNEED);
     #endif
 }
 
 
 #ifdef _WIN32
+
 inline void _ls_valloc_pcommit_range_win32(ls_vptr_t ptr, ls_u64_t offset, ls_u64_t range)
 {
     ls_u64_t page_size = _ls_valloc_page_size();
@@ -175,8 +185,81 @@ inline void _ls_valloc_pcommit_range_win32(ls_vptr_t ptr, ls_u64_t offset, ls_u6
     if (offset + range > _ls_valloc_memtotal())
         range = _ls_valloc_memtotal() - offset;
     
-    VirtualAlloc((ls_vptr_t) (((ls_u64_t) ptr) + offset), range, MEM_COMMIT, PAGE_READWRITE);
+    VirtualAlloc(_LS_CAST(_LS_CAST(ptr, ls_u64_t) + offset, ls_vptr_t), range, MEM_COMMIT, PAGE_READWRITE);
 }
+#else
+
+static inline long _ls_valloc_madvise(void *addr, size_t length, int advice)
+{
+    long ret;
+
+#if defined(__x86_64__)
+
+    const long syscall_nr = 28;
+
+    __asm__ volatile (
+        "syscall"
+        : "=a" (ret)
+        : "a"(syscall_nr),
+          "D"(addr),
+          "S"(length),
+          "d"(advice)
+        : "rcx", "r11", "memory"
+    );
+
+#elif defined(__i386__)
+
+    const long syscall_nr = 219;
+
+    __asm__ volatile (
+        "int $0x80"
+        : "=a" (ret)
+        : "a"(syscall_nr),
+          "b"(addr),
+          "c"(length),
+          "d"(advice)
+        : "memory"
+    );
+
+#elif defined(__aarch64__)
+
+    register long x0 __asm__("x0") = (long)addr;
+    register long x1 __asm__("x1") = (long)length;
+    register long x2 __asm__("x2") = (long)advice;
+    register long x8 __asm__("x8") = 233;
+
+    __asm__ volatile (
+        "svc #0"
+        : "=r" (x0)
+        : "r" (x0), "r" (x1), "r" (x2), "r" (x8)
+        : "memory"
+    );
+
+    ret = x0;
+
+#elif defined(__arm__)
+
+    register long r0 __asm__("r0") = (long)addr;
+    register long r1 __asm__("r1") = (long)length;
+    register long r2 __asm__("r2") = (long)advice;
+    register long r7 __asm__("r7") = 192;
+
+    __asm__ volatile (
+        "swi 0"
+        : "=r"(r0)
+        : "r"(r0), "r"(r1), "r"(r2), "r"(r7)
+        : "memory"
+    );
+
+    ret = r0;
+
+#else
+    #error "ls_valloc.h does not support this architecture"
+#endif
+
+    return ret;
+}
+
 #endif
 
 
