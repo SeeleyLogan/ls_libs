@@ -3,7 +3,7 @@
  *
  * Documentation
  *
- *  IMPORTANT: When compiling with strict C standards, _GNU_SOURCE must be defined at compile time.
+ *  IMPORTANT: When compiling with strict C standards (on linux), _GNU_SOURCE must be defined at compile time.
  *
  *  Functions
  * 
