@@ -88,33 +88,47 @@
 #endif
 
 
+#if !defined(_LS_INLINE) && defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && !defined(__GNUC__) && !defined(__clang__) && !defined(__STRICT_ANSI__)
+	#define _LS_INLINE inline __attribute__((always_inline, unused))
+#elif !defined(_LS_INLINE) && defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && (defined(__GNUC__) || defined(__clang__)) && !defined(__STRICT_ANSI__)
+	#define _LS_INLINE inline __attribute__((always_inline, unused))
+#elif !defined(_LS_INLINE)
+    #define _LS_INLINE
+#endif
+
+#if !defined(_LS_USED) && (defined(__GNUC__) || defined(__clang__)) && !defined(__STRICT_ANSI__)
+	#define _LS_USED __attribute__((unused))
+#elif !defined(_LS_USED)
+	#define _LS_USED
+#endif
+
 #ifndef _LS_CAST
 	#define _LS_CAST(v, t) ((t) (v))
 #endif
 
 #ifndef _LS_MULT_TO
-    #define _LS_MULT_TO(n, m) ((n) - ((n)%(m)))  // rounds n down to nearest multiple of m, integers only
+    #define _LS_MULT_TO(n, m) ((n) - ((n)%(m)))  /* rounds n down to nearest multiple of m, integers only */
 #endif
 
 
-ls_vptr_t   ls_valloc_vmalloc    (ls_ptr_t size);
-void        ls_valloc_vfree      (ls_vptr_t ptr);
-void        ls_valloc_pfree      (ls_vptr_t ptr);
-void        ls_valloc_pfree_range(ls_vptr_t ptr, ls_u64_t offset, ls_u64_t range);
+static ls_vptr_t   ls_valloc_vmalloc    (ls_ptr_t size)                                     _LS_USED;
+static void        ls_valloc_vfree      (ls_vptr_t ptr)                                     _LS_USED;
+static void        ls_valloc_pfree      (ls_vptr_t ptr) __attribute__((unused))             _LS_USED;
+static void        ls_valloc_pfree_range(ls_vptr_t ptr, ls_u64_t offset, ls_u64_t range)    _LS_USED;
 
 #ifdef _WIN32
-    void _ls_valloc_pcommit_range_win32(ls_vptr_t ptr, ls_u64_t offset, ls_u64_t range);
+    static void _ls_valloc_pcommit_range_win32(ls_vptr_t ptr, ls_u64_t offset, ls_u64_t range) _LS_USED;
 
     #define ls_valloc_pcommit_range(...) _ls_valloc_pcommit_range_win32(__VA_ARGS__)
 #else
-    #define ls_valloc_pcommit_range(...)  // still good practice to call this
+    #define ls_valloc_pcommit_range(...)  /* still good practice to call this */
 #endif
 
-ls_u64_t _ls_valloc_page_size();
-ls_u64_t _ls_valloc_memtotal();
+static ls_u64_t _ls_valloc_page_size();
+static ls_u64_t _ls_valloc_memtotal();
 
 
-inline ls_vptr_t ls_valloc_vmalloc(ls_ptr_t size)
+static _LS_INLINE ls_vptr_t ls_valloc_vmalloc(ls_ptr_t size)
 {
     *size = _ls_valloc_memtotal();
 
@@ -127,7 +141,7 @@ inline ls_vptr_t ls_valloc_vmalloc(ls_ptr_t size)
 }
 
 
-inline void ls_valloc_vfree(ls_vptr_t ptr)
+static _LS_INLINE void ls_valloc_vfree(ls_vptr_t ptr)
 {
     #ifdef _WIN32
         VirtualFree(ptr, _ls_valloc_memtotal(), MEM_RELEASE);
@@ -137,7 +151,7 @@ inline void ls_valloc_vfree(ls_vptr_t ptr)
 }
 
 
-inline void ls_valloc_pfree(ls_vptr_t ptr)
+static _LS_INLINE void ls_valloc_pfree(ls_vptr_t ptr)
 {
     #ifdef _WIN32
         VirtualFree(ptr, _ls_valloc_memtotal(), MEM_DECOMMIT);
@@ -147,7 +161,7 @@ inline void ls_valloc_pfree(ls_vptr_t ptr)
 }
 
 
-inline void ls_valloc_pfree_range(ls_vptr_t ptr, ls_u64_t offset, ls_u64_t range)
+static _LS_INLINE void ls_valloc_pfree_range(ls_vptr_t ptr, ls_u64_t offset, ls_u64_t range)
 {
     ls_u64_t page_size = _ls_valloc_page_size();
 
@@ -155,7 +169,7 @@ inline void ls_valloc_pfree_range(ls_vptr_t ptr, ls_u64_t offset, ls_u64_t range
     range  = _LS_MULT_TO(range, page_size);
     
     if (!range || offset >= _ls_valloc_memtotal())
-        return;  // nothing to do
+        return;  /* nothing to do */
     
     if (offset + range > _ls_valloc_memtotal())
         range = _ls_valloc_memtotal() - offset;
@@ -170,7 +184,7 @@ inline void ls_valloc_pfree_range(ls_vptr_t ptr, ls_u64_t offset, ls_u64_t range
 
 #ifdef _WIN32
 
-inline void _ls_valloc_pcommit_range_win32(ls_vptr_t ptr, ls_u64_t offset, ls_u64_t range)
+static _LS_INLINE void _ls_valloc_pcommit_range_win32(ls_vptr_t ptr, ls_u64_t offset, ls_u64_t range)
 {
     ls_u64_t page_size = _ls_valloc_page_size();
     
@@ -178,7 +192,7 @@ inline void _ls_valloc_pcommit_range_win32(ls_vptr_t ptr, ls_u64_t offset, ls_u6
     range  = _LS_MULT_TO(range, page_size);
     
     if (!range || offset >= _ls_valloc_memtotal())
-        return;  // nothing to do
+        return;  /* nothing to do */
     
     if (offset + range > _ls_valloc_memtotal())
         range = _ls_valloc_memtotal() - offset;
@@ -188,7 +202,7 @@ inline void _ls_valloc_pcommit_range_win32(ls_vptr_t ptr, ls_u64_t offset, ls_u6
 #endif
 
 
-inline ls_u64_t _ls_valloc_page_size()
+static _LS_INLINE ls_u64_t _ls_valloc_page_size()
 {
     #ifdef _WIN32
         SYSTEM_INFO sysinfo;
@@ -201,7 +215,7 @@ inline ls_u64_t _ls_valloc_page_size()
 }
 
 
-inline ls_u64_t _ls_valloc_memtotal()
+static _LS_INLINE ls_u64_t _ls_valloc_memtotal()
 {
     #ifdef _WIN32
         MEMORYSTATUS memstat;
@@ -221,7 +235,7 @@ inline ls_u64_t _ls_valloc_memtotal()
 }
 
 
-#endif  // #ifdef LS_VALLOC_H
+#endif  /* #ifdef LS_VALLOC_H */
 
 
 /*
