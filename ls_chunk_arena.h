@@ -87,24 +87,41 @@
 #define LS_CHUNK_ARENA_MEM_FULL	_LS_CHUNK_ARENA_RESULT_SIGNATURE(2)
 
 
-// IMPORTANT: arena allocator expects user to provide memory
-// meaning it requires a function to handle said memory
-// your allocator may provide it for you, simply wrap it in a macro
-// if the chunk allocator's memory is physical and continuous: these can be empty defines
+/* 
+ * IMPORTANT: arena allocator expects user to provide memory
+ * meaning it requires a function to handle said memory
+ * your allocator may provide it for you, simply wrap it in a macro
+ * if the chunk allocator's memory is physical and continuous: these can be empty defines
+ */
 #ifndef _ls_chunk_arena_alloca_commit_range
     #error "chunk arena is missing allocator binding"
 #endif
 
 
-#ifndef _LS_MULT_TO
-    #define _LS_MULT_TO(n, m) ((n) - ((n) % (m)))  // rounds n down to nearest multiple of m, integers only
+#if !defined(_LS_INLINE) && defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && !defined(__GNUC__) && !defined(__clang__) && !defined(__STRICT_ANSI__)
+	#define _LS_INLINE inline __attribute__((always_inline, unused))
+#elif !defined(_LS_INLINE) && defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && (defined(__GNUC__) || defined(__clang__)) && !defined(__STRICT_ANSI__)
+	#define _LS_INLINE inline __attribute__((always_inline, unused))
+#elif !defined(_LS_INLINE)
+    #define _LS_INLINE
+#endif
+
+#if !defined(_LS_USED) && (defined(__GNUC__) || defined(__clang__)) && !defined(__STRICT_ANSI__)
+	#define _LS_USED __attribute__((unused))
+#elif !defined(_LS_USED)
+	#define _LS_USED
 #endif
 
 #ifndef _LS_CAST
 	#define _LS_CAST(v, t) ((t) (v))
 #endif
 
-#define _LS_CHUNK_ARENA_INDEX_TO_PTR(chunk_arena, index) (_LS_CAST((index) * chunk_arena->_chunk_size + _LS_CAST(chunk_arena->_memory, ls_u64_t), ls_vptr_t))
+#ifndef _LS_MULT_TO
+    #define _LS_MULT_TO(n, m) ((n) - ((n) % (m)))  /* rounds n down to nearest multiple of m, integers only */
+#endif
+
+
+#define _LS_CHUNK_ARENA_INDEX_TO_ADDR(chunk_arena, index) (_LS_CAST((index) * chunk_arena->_chunk_size + _LS_CAST(chunk_arena->_memory, ls_u64_t), ls_vptr_t))
 
 
 typedef struct ls_chunk_arena_s
@@ -119,13 +136,13 @@ typedef struct ls_chunk_arena_s
 ls_chunk_arena_t;
 
 
-ls_chunk_arena_t 	ls_chunk_arena_init							(ls_vptr_t 		   	 memory, 		ls_u64_t 		memory_size, 	ls_u64_t 	chunk_size);
-ls_vptr_t 			ls_chunk_arena_get_chunk					(ls_chunk_arena_t   *chunk_arena, 	ls_result_t    *status);
-ls_vptr_t 			_ls_chunk_arena_revive_last_deleted_chunk	(ls_chunk_arena_t 	*chunk_arena);
-void				ls_chunk_arena_delete_chunk					(ls_chunk_arena_t 	*chunk_arena, 	ls_vptr_t 		chunk_ptr);
+static ls_chunk_arena_t 	ls_chunk_arena_init							(ls_vptr_t 		   	 memory, 		ls_u64_t 		memory_size, 	ls_u64_t 	chunk_size) _LS_USED;
+static ls_vptr_t 			ls_chunk_arena_get_chunk					(ls_chunk_arena_t   *chunk_arena, 	ls_result_t    *status)									_LS_USED;
+static ls_vptr_t 			_ls_chunk_arena_revive_last_deleted_chunk	(ls_chunk_arena_t 	*chunk_arena) 															_LS_USED;
+static void					ls_chunk_arena_delete_chunk					(ls_chunk_arena_t 	*chunk_arena, 	ls_vptr_t 		chunk_ptr)								_LS_USED;
 
 
-inline ls_chunk_arena_t ls_chunk_arena_init(ls_vptr_t memory, ls_u64_t memory_size, ls_u64_t chunk_size)
+static _LS_INLINE ls_chunk_arena_t ls_chunk_arena_init(ls_vptr_t memory, ls_u64_t memory_size, ls_u64_t chunk_size)
 {
     ls_chunk_arena_t chunk_arena = 
     {
@@ -141,7 +158,7 @@ inline ls_chunk_arena_t ls_chunk_arena_init(ls_vptr_t memory, ls_u64_t memory_si
 }
 
 
-inline ls_vptr_t ls_chunk_arena_get_chunk(ls_chunk_arena_t *chunk_arena, ls_result_t *status)
+static _LS_INLINE ls_vptr_t ls_chunk_arena_get_chunk(ls_chunk_arena_t *chunk_arena, ls_result_t *status)
 {
 	if (chunk_arena->_max_chunk_c == chunk_arena->_chunk_c)
 	{
@@ -155,7 +172,7 @@ inline ls_vptr_t ls_chunk_arena_get_chunk(ls_chunk_arena_t *chunk_arena, ls_resu
 	
 	if (!chunk_arena->_last_deleted_chunk)
 	{
-		ls_vptr_t chunk_ptr = _LS_CHUNK_ARENA_INDEX_TO_PTR(chunk_arena, chunk_arena->_next_committed_chunk - 1);
+		ls_vptr_t chunk_ptr = _LS_CHUNK_ARENA_INDEX_TO_ADDR(chunk_arena, chunk_arena->_next_committed_chunk - 1);
 		_ls_chunk_arena_alloca_commit_range(chunk_arena->_memory, chunk_ptr, chunk_arena->_chunk_size);
 
 		chunk_arena->_next_committed_chunk++;
@@ -166,9 +183,9 @@ inline ls_vptr_t ls_chunk_arena_get_chunk(ls_chunk_arena_t *chunk_arena, ls_resu
 		return _ls_chunk_arena_revive_last_deleted_chunk(chunk_arena);
 }
 
-inline ls_vptr_t _ls_chunk_arena_revive_last_deleted_chunk(ls_chunk_arena_t *chunk_arena)
+static _LS_INLINE ls_vptr_t _ls_chunk_arena_revive_last_deleted_chunk(ls_chunk_arena_t *chunk_arena)
 {
-	ls_ptr_t deleted_chunk = _LS_CAST(_LS_CHUNK_ARENA_INDEX_TO_PTR(chunk_arena, chunk_arena->_last_deleted_chunk - 1), ls_ptr_t);
+	ls_ptr_t deleted_chunk = _LS_CAST(_LS_CHUNK_ARENA_INDEX_TO_ADDR(chunk_arena, chunk_arena->_last_deleted_chunk - 1), ls_ptr_t);
 
 	chunk_arena->_last_deleted_chunk = deleted_chunk[0];
 
@@ -176,7 +193,7 @@ inline ls_vptr_t _ls_chunk_arena_revive_last_deleted_chunk(ls_chunk_arena_t *chu
 }
 
 
-inline void ls_chunk_arena_delete_chunk(ls_chunk_arena_t *chunk_arena, ls_vptr_t chunk_ptr)
+static _LS_INLINE void ls_chunk_arena_delete_chunk(ls_chunk_arena_t *chunk_arena, ls_vptr_t chunk_ptr)
 {
 	chunk_ptr = _LS_CAST(_LS_MULT_TO((ls_u64_t) chunk_ptr, chunk_arena->_chunk_size), ls_vptr_t);
 
@@ -189,7 +206,7 @@ inline void ls_chunk_arena_delete_chunk(ls_chunk_arena_t *chunk_arena, ls_vptr_t
 }
 
 
-#endif  // #ifndef LS_CHUNK_ARENA_H
+#endif  /* #ifndef LS_CHUNK_ARENA_H */
 
 
 /*
