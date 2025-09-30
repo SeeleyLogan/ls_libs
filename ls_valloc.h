@@ -80,7 +80,6 @@
 	#endif
 
 	#define LS_CAST(v, t) ((t) (v))
-	#define LS_BIT_CAST(v, t) (*((t *) (v)))
 
 	#define LS_FLOOR_LOG2(n) (63 - __builtin_clzll(n))
 	#define LS_CEIL_LOG2(n) (64 - __builtin_clzll((n) - 1))
