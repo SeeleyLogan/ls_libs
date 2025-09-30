@@ -98,6 +98,16 @@
 #endif
 
 
+#ifndef LS_VALLOC_NO_SHORT_NAMES
+
+    #define vmalloc     ls_valloc_vmalloc
+    #define vfree       ls_valloc_vfree
+    #define pfree       ls_valloc_pfree
+    #define pfree_range ls_valloc_pfree_range
+
+#endif
+
+
 #include <stdio.h>
 
 #ifdef _WIN32
