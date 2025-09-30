@@ -100,10 +100,11 @@
 
 #ifndef LS_VALLOC_NO_SHORT_NAMES
 
-    #define vmalloc     ls_valloc_vmalloc
-    #define vfree       ls_valloc_vfree
-    #define pfree       ls_valloc_pfree
-    #define pfree_range ls_valloc_pfree_range
+    #define vmalloc         ls_valloc_vmalloc
+    #define vfree           ls_valloc_vfree
+    #define pfree           ls_valloc_pfree
+    #define pfree_range     ls_valloc_pfree_range
+    #define pcommit_range   ls_valloc_pcommit_range
 
 #endif
 
