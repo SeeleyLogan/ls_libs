@@ -32,8 +32,8 @@
  *
  *		ls_void_p ls_chunk_arena_get_chunk(ls_chunk_arena_s *chunk_arena, ls_u32_t *status) - arena_get_chunk
  *			[status] is out
- *			[*status] = LS_CHUNK_ARENA_SUCCESS
- *			[*status] = LS_CHUNK_ARENA_MEM_FULL -> could not fetch chunk: none left. [return] will also be LS_NULL
+ *			[*status] |= LS_CHUNK_ARENA_SUCCESS
+ *			[*status] |= LS_CHUNK_ARENA_MEM_FULL -> could not fetch chunk: none left. [return] will also be LS_NULL
  *
  *		void ls_chunk_arena_delete_chunk(ls_chunk_arena_s *chunk_arena, ls_void_p chunk_p) - arena_delete_chunk
  *			[chunk_p] must have been returned by [ls_chunk_arena_get_chunk]
@@ -107,7 +107,7 @@
 
 #ifndef LS_CHUNK_ARENA_NO_SHORT_NAMES
     
-	#define arena_t    	 	   	ls_chunk_arena_s
+	#define arena_s    	 	   	ls_chunk_arena_s
     #define arena_init		 	ls_chunk_arena_init
 	#define arena_fini		 	ls_chunk_arena_fini
 	#define arena_get_chunk    	ls_chunk_arena_get_chunk
@@ -116,10 +116,8 @@
 #endif
 
 
-#define _LS_CHUNK_ARENA_RESULT_SIGNATURE(tag) (0x43484100 | tag)
-
 #define LS_CHUNK_ARENA_SUCCESS  0
-#define LS_CHUNK_ARENA_MEM_FULL	_LS_CHUNK_ARENA_RESULT_SIGNATURE(2)
+#define LS_CHUNK_ARENA_MEM_FULL	1
 
 
 /* 
@@ -192,11 +190,11 @@ static LS_INLINE ls_void_p ls_chunk_arena_get_chunk(ls_chunk_arena_s *chunk_aren
 {
 	if (chunk_arena->_max_chunk_c == chunk_arena->_chunk_c)
 	{
-		*status = LS_CHUNK_ARENA_MEM_FULL;
+		*status |= LS_CHUNK_ARENA_MEM_FULL;
 		return LS_NULL;
 	}
 	else
-		*status = LS_CHUNK_ARENA_SUCCESS;
+		*status |= LS_CHUNK_ARENA_SUCCESS;
 
 	chunk_arena->_chunk_c++;
 	
