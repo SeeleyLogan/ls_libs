@@ -32,8 +32,8 @@
  *
  *		ls_void_p ls_chunk_arena_get_chunk(ls_chunk_arena_s *chunk_arena, ls_u32_t *status) - arena_get_chunk
  *			[status] is out
- *			[*status] |= LS_CHUNK_ARENA_SUCCESS
- *			[*status] |= LS_CHUNK_ARENA_MEM_FULL -> could not fetch chunk: none left. [return] will also be LS_NULL
+ *			[*status] = LS_SUCCESS
+ *			[*status] = LS_CHUNK_ARENA_MEM_FULL -> could not fetch chunk: none left. [return] will also be LS_NULL
  *
  *		void ls_chunk_arena_delete_chunk(ls_chunk_arena_s *chunk_arena, ls_void_p chunk_p) - arena_delete_chunk
  *			[chunk_p] must have been returned by [ls_chunk_arena_get_chunk]
@@ -44,80 +44,10 @@
 #define LS_CHUNK_ARENA_H
 
 
-#ifndef LS_TYPES_INCLUDED
-#define LS_TYPES_INCLUDED
-
-	#include <stdint.h>	
-
-	typedef uint8_t		ls_bool_t;
-
-	typedef uint8_t		ls_u8_t;
-	typedef int8_t		ls_i8_t;
-	typedef uint16_t	ls_u16_t;
-	typedef int16_t		ls_i16_t;
-	typedef uint32_t	ls_u32_t;
-	typedef int32_t		ls_i32_t;
-	typedef uint64_t	ls_u64_t;
-	typedef int64_t		ls_i64_t;
-
-	typedef float       ls_f32_t;
-	typedef double      ls_f64_t;
-
-	typedef void 	 *  ls_void_p;
-	typedef ls_u64_t *	ls_u64_p;
-
-	typedef ls_u32_t	ls_result_t;
-
-	#define LS_NULL		0
-
-#endif
-
-#ifndef LS_MACROS_INCLUDED
-#define LS_MACROS_INCLUDED
-
-	#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && (defined(__GNUC__) || defined(__clang__))
-		#define LS_INLINE inline __attribute__((always_inline, unused))
-	#else
-		#define LS_INLINE
-	#endif
-
-	#if defined(__GNUC__) || defined(__clang__)
-		#define LS_USED __attribute__((unused))
-	#else
-		#define LS_USED
-	#endif
-
-	#define LS_CAST(v, t) ((t) (v))
-
-	#define LS_FLOOR_LOG2(n) (63 - __builtin_clzll(n))
-	#define LS_CEIL_LOG2(n) (64 - __builtin_clzll((n) - 1))
-
-    #define LS_ROUND_DOWN_TO(n, m) ((n) - ((n) % (m))) 	  		/* rounds n down to nearest multiple of m, integers only */
-	#define LS_ROUND_UP_TO(n, m) (((n) + (m) - 1) / (m) * (m))  /* rounds n up to nearest multiple of m, integers only */
-
-	#include <stdlib.h>
-	#include <string.h>
-
-	#define LS_EXIT 	exit
-	#define LS_MEMSET 	memset
-	#define LS_MEMCPY 	memcpy
-	
-#endif
+#include "./ls_macros.h"
 
 
-#ifndef LS_CHUNK_ARENA_NO_SHORT_NAMES
-    
-	#define arena_s    	 	   	ls_chunk_arena_s
-    #define arena_init		 	ls_chunk_arena_init
-	#define arena_fini		 	ls_chunk_arena_fini
-	#define arena_get_chunk    	ls_chunk_arena_get_chunk
-	#define arena_delete_chunk	ls_chunk_arena_delete_chunk
-
-#endif
-
-
-#define LS_CHUNK_ARENA_SUCCESS  0
-#define LS_CHUNK_ARENA_MEM_FULL	1
+#define LS_CHUNK_ARENA_MEM_FULL	2
 
 
 /* 
@@ -190,11 +120,13 @@ static LS_INLINE ls_void_p ls_chunk_arena_get_chunk(ls_chunk_arena_s *chunk_aren
 {
 	if (chunk_arena->_max_chunk_c == chunk_arena->_chunk_c)
 	{
-		*status |= LS_CHUNK_ARENA_MEM_FULL;
+		*status = LS_CHUNK_ARENA_MEM_FULL;
 		return LS_NULL;
 	}
 	else
-		*status |= LS_CHUNK_ARENA_SUCCESS;
+	{
+		*status = LS_SUCCESS;
+	}
 
 	chunk_arena->_chunk_c++;
 	
@@ -208,7 +140,9 @@ static LS_INLINE ls_void_p ls_chunk_arena_get_chunk(ls_chunk_arena_s *chunk_aren
 		return chunk_p;
 	}
 	else
+	{
 		return _ls_chunk_arena_revive_last_deleted_chunk(chunk_arena);
+	}
 }
 
 static LS_INLINE ls_void_p _ls_chunk_arena_revive_last_deleted_chunk(ls_chunk_arena_s *chunk_arena)
