@@ -79,12 +79,12 @@ typedef struct
 ls_chunk_arena_s;
 
 
-static ls_chunk_arena_s 	ls_chunk_arena_init							(ls_void_p			 memory, 		ls_u64_t 		memory_size, 	ls_u64_t 	chunk_size) LS_USED;
-static void				 	ls_chunk_arena_fini							(ls_chunk_arena_s 	*chunk_arena) 															LS_USED;
+ls_chunk_arena_s 	ls_chunk_arena_init							(ls_void_p			 memory, 		ls_u64_t 		memory_size, 	ls_u64_t 	chunk_size) LS_USED;
+void				 ls_chunk_arena_fini							(ls_chunk_arena_s 	*chunk_arena) 															LS_USED;
 
-static ls_void_p 			ls_chunk_arena_get_chunk					(ls_chunk_arena_s   *chunk_arena, 	ls_result_t    *status)									LS_USED;
-static ls_void_p 			_ls_chunk_arena_revive_last_deleted_chunk	(ls_chunk_arena_s 	*chunk_arena) 															LS_USED;
-static void					ls_chunk_arena_delete_chunk					(ls_chunk_arena_s 	*chunk_arena, 	ls_void_p 		chunk_p)								LS_USED;
+ls_void_p 			ls_chunk_arena_get_chunk					(ls_chunk_arena_s   *chunk_arena, 	ls_result_t    *status)									LS_USED;
+ls_void_p 			_ls_chunk_arena_revive_last_deleted_chunk	(ls_chunk_arena_s 	*chunk_arena) 															LS_USED;
+void				ls_chunk_arena_delete_chunk					(ls_chunk_arena_s 	*chunk_arena, 	ls_void_p 		chunk_p)								LS_USED;
 
 
 static LS_INLINE ls_chunk_arena_s ls_chunk_arena_init(ls_void_p memory, ls_u64_t memory_size, ls_u64_t chunk_size)
