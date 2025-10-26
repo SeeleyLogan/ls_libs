@@ -49,21 +49,21 @@
 #endif
 
 
-static ls_void_p   ls_valloc_vmalloc    (ls_u64_p  size)                                    LS_USED;
-static void        ls_valloc_vfree      (ls_void_p ptr)                                     LS_USED;
-static void        ls_valloc_pfree      (ls_void_p ptr)                                     LS_USED;
-static void        ls_valloc_pfree_range(ls_void_p ptr, ls_u64_t offset, ls_u64_t range)    LS_USED;
+ls_void_p   ls_valloc_vmalloc    (ls_u64_p  size)                                    LS_USED;
+void        ls_valloc_vfree      (ls_void_p ptr)                                     LS_USED;
+void        ls_valloc_pfree      (ls_void_p ptr)                                     LS_USED;
+void        ls_valloc_pfree_range(ls_void_p ptr, ls_u64_t offset, ls_u64_t range)    LS_USED;
 
 #ifdef _WIN32
-    static void _ls_valloc_pcommit_range_win32(ls_void_p ptr, ls_u64_t offset, ls_u64_t range) LS_USED;
+    void _ls_valloc_pcommit_range_win32(ls_void_p ptr, ls_u64_t offset, ls_u64_t range) LS_USED;
 
     #define ls_valloc_pcommit_range(ptr, offset, range) _ls_valloc_pcommit_range_win32(ptr, offset, range)
 #else
     #define ls_valloc_pcommit_range(ptr, offset, range)  /* still good practice to call this */
 #endif
 
-static ls_u64_t _ls_valloc_page_size(void);
-static ls_u64_t _ls_valloc_memtotal(void);
+ls_u64_t _ls_valloc_page_size(void);
+ls_u64_t _ls_valloc_memtotal(void);
 
 
 static LS_INLINE ls_void_p ls_valloc_vmalloc(ls_u64_p size)
