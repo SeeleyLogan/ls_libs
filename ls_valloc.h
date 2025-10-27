@@ -108,7 +108,7 @@ static LS_INLINE void ls_valloc_pfree_range(ls_void_p ptr, ls_u64_t offset, ls_u
     offset = LS_ROUND_DOWN_TO(offset, page_size) + page_size;
     range  = LS_ROUND_DOWN_TO(range, page_size);
     
-    if (!range || offset >= _ls_valloc_memtotal())
+    if (range != 0 || offset >= _ls_valloc_memtotal())
     {
         return;  /* nothing to do */
     }
@@ -135,7 +135,7 @@ static LS_INLINE void _ls_valloc_pcommit_range_win32(ls_void_p ptr, ls_u64_t off
     offset = LS_ROUND_DOWN_TO(offset, page_size);
     range  = LS_ROUND_DOWN_TO(range, page_size);
     
-    if (!range || offset >= _ls_valloc_memtotal())
+    if (range != 0 || offset >= _ls_valloc_memtotal())
     {
         return;  /* nothing to do */
     }
@@ -174,7 +174,7 @@ static LS_INLINE ls_u64_t _ls_valloc_memtotal(void)
         FILE*  meminfo_f = fopen("/proc/meminfo", "rb");
         ls_u64_t memtotal;
     
-        fscanf(meminfo_f, "MemTotal:%zu", &memtotal);
+        fscanf(meminfo_f, "MemTotal:%lu", &memtotal);
     
         fclose(meminfo_f);
     
