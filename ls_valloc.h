@@ -68,7 +68,9 @@ static ls_u64_t _ls_valloc_memtotal(void);
 
 static LS_INLINE ls_void_p ls_valloc_vmalloc(ls_u64_p size)
 {
-    ls_void_p buf;
+    #ifndef _WIN32
+        ls_void_p buf;
+    #endif
 
     *size = _ls_valloc_memtotal();
 
@@ -133,9 +135,9 @@ static LS_INLINE void _ls_valloc_pcommit_range_win32(ls_void_p ptr, ls_u64_t off
     ls_u64_t page_size = _ls_valloc_page_size();
     
     offset = LS_ROUND_DOWN_TO(offset, page_size);
-    range  = LS_ROUND_DOWN_TO(range, page_size);
+    range  = LS_ROUND_UP_TO(range, page_size);
     
-    if (range != 0 || offset >= _ls_valloc_memtotal())
+    if (range == 0 || offset >= _ls_valloc_memtotal())
     {
         return;  /* nothing to do */
     }
@@ -147,6 +149,7 @@ static LS_INLINE void _ls_valloc_pcommit_range_win32(ls_void_p ptr, ls_u64_t off
     
     VirtualAlloc(LS_CAST(LS_CAST(ptr, ls_u64_t) + offset, ls_void_p), range, MEM_COMMIT, PAGE_READWRITE);
 }
+
 #endif
 
 
