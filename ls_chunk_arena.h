@@ -62,7 +62,7 @@
 
 
 #define LS_CHUNK_ARENA_INDEX_TO_ADDR(chunk_arena, index) (LS_CAST((index) * chunk_arena->_chunk_size + LS_CAST(chunk_arena->_memory, ls_u64_t), ls_void_p))
-#define LS_CHUNK_ARENA_ADDR_TO_INDEX(chunk_arena, ptr) ((LS_CAST(ptr, ls_u64_t) - LS_CAST(chunk_arena->memory, ls_u64_t)) / chunk_arena->_chunk_size)
+#define LS_CHUNK_ARENA_ADDR_TO_INDEX(chunk_arena, ptr) ((LS_CAST(ptr, ls_u64_t) - LS_CAST(chunk_arena->_memory, ls_u64_t)) / chunk_arena->_chunk_size)
 
 
 typedef struct
@@ -133,7 +133,7 @@ static LS_INLINE ls_void_p ls_chunk_arena_get_chunk(ls_chunk_arena_s *chunk_aren
 	if (!chunk_arena->_last_deleted_chunk)
 	{
 		ls_void_p chunk_p = LS_CHUNK_ARENA_INDEX_TO_ADDR(chunk_arena, chunk_arena->_next_committed_chunk - 1);
-		_ls_chunk_arena_alloca_commit_range(chunk_arena->_memory, chunk_p, chunk_arena->_chunk_size);
+		_ls_chunk_arena_alloca_commit_range(chunk_arena->_memory, CAST(chunk_p, ls_u64_t), chunk_arena->_chunk_size);
 
 		chunk_arena->_next_committed_chunk++;
 
