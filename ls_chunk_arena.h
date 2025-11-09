@@ -93,7 +93,7 @@ static LS_INLINE ls_chunk_arena_s ls_chunk_arena_init(ls_void_p memory, ls_u64_t
 
     chunk_arena._memory        			= memory;
 
-    chunk_arena._max_chunk_c   			= memory_size >> __builtin_ctzll(chunk_size);
+    chunk_arena._max_chunk_c   			= memory_size / chunk_size;
 	chunk_arena._chunk_size				= chunk_size;
 	chunk_arena._chunk_c				= 0;
 
@@ -107,12 +107,12 @@ static LS_INLINE void ls_chunk_arena_fini(ls_chunk_arena_s *chunk_arena)
 {
     chunk_arena->_memory        		= LS_NULL;
 
-	chunk_arena->_max_chunk_c   		= LS_NULL;
-	chunk_arena->_chunk_size			= LS_NULL;
-	chunk_arena->_chunk_c				= LS_NULL;
+	chunk_arena->_max_chunk_c   		= 0;
+	chunk_arena->_chunk_size			= 0;
+	chunk_arena->_chunk_c				= 0;
 	
-	chunk_arena->_next_committed_chunk 	= LS_NULL;
-	chunk_arena->_last_deleted_chunk	= LS_NULL;
+	chunk_arena->_next_committed_chunk 	= 0;
+	chunk_arena->_last_deleted_chunk	= 0;
 }
 
 
@@ -133,7 +133,7 @@ static LS_INLINE ls_void_p ls_chunk_arena_get_chunk(ls_chunk_arena_s *chunk_aren
 	if (!chunk_arena->_last_deleted_chunk)
 	{
 		ls_void_p chunk_p = LS_CHUNK_ARENA_INDEX_TO_ADDR(chunk_arena, chunk_arena->_next_committed_chunk - 1);
-		_ls_chunk_arena_alloca_commit_range(chunk_arena->_memory, CAST(chunk_p, ls_u64_t), chunk_arena->_chunk_size);
+		_ls_chunk_arena_alloca_commit_range(chunk_arena->_memory, (chunk_arena->_next_committed_chunk - 1) * chunk_arena->_chunk_size, chunk_arena->_chunk_size);
 
 		chunk_arena->_next_committed_chunk++;
 
@@ -159,7 +159,7 @@ static LS_INLINE void ls_chunk_arena_delete_chunk(ls_chunk_arena_s *chunk_arena,
 {
 	ls_u64_t chunk_i;
 	
-	chunk_i = (LS_CAST(chunk_p, ls_u64_t) - LS_CAST(chunk_arena->_memory, ls_u64_t)) >> __builtin_ctzll(chunk_arena->_chunk_size);
+	chunk_i = LS_CHUNK_ARENA_ADDR_TO_INDEX(chunk_arena, chunk_p);
 
 	LS_CAST(chunk_p, ls_u64_p)[0] = chunk_arena->_last_deleted_chunk;
 
