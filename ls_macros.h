@@ -69,8 +69,8 @@
 
 	#define LS_CAST(v, t) ((t) (v))
 
-	#define LS_FLOOR_LOG2(n) (63 - __builtin_clzll(n))
-	#define LS_CEIL_LOG2(n) (64 - __builtin_clzll((n) - 1))
+	#define LS_FLOOR_LOG2(n) (63llu - __builtin_clzll(LS_CAST(n, ls_u64_t)))
+	#define LS_CEIL_LOG2(n) (64llu - __builtin_clzll(LS_CAST(n, ls_u64_t) - 1))
 
     #define LS_ROUND_DOWN_TO(n, m) ((n) - ((n) % (m))) 	  	 	/* rounds n down to nearest multiple of m, integers only */
 	#define LS_ROUND_UP_TO(n, m) (((n) + (m) - 1) / (m) * (m))  /* rounds n up to nearest multiple of m, integers only */
