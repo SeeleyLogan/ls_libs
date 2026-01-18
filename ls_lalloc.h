@@ -17,14 +17,20 @@
  *
  *      Compiling this file requires two flags:
  *          -DLS_LALLOC_IMPL
+ *          -D_GNU_SOURCE (linux only, see notes)
  *          -xc (see notes)
  *
  *      Example:
- *          cc -DLS_LALLOC_IMPL -xc -shared -fPIC ls_lalloc.h -o libls_lalloc.so
+ *          cc -DLS_LALLOC_IMPL -xc -D_GNU_SOURCE -shared -fPIC ls_lalloc.h -o libls_lalloc.so
  *
  *      Notes:
  *          -xc flag is only required if you are
  *          compiling .h files as a shared object.
+ *
+ *          Defining _GNU_SOURCE exposes mremap, a
+ *          crucial function for remapping pages on
+ *          Linux. Honestly it should be apart of 
+ *          sys/mman.h by default.
  *
  *  Usage
  *
@@ -121,10 +127,11 @@
 #else
 
 
+#include <stdatomic.h>
+
 #if defined(LS_WINDOWS_OS)
     #warn "incomplete windows implementation"
 #elif defined(LS_UNIX_OS)
-    #define _GNU_SOURCE
     #include <sys/mman.h>
     #include <unistd.h>
 #endif
@@ -149,12 +156,12 @@
 
 typedef struct
 {
-    void*    layer_p;       /* address of start of layer */
-    ls_u64_t block_z;       /* size of block in current layer (pow of 2) */
-    ls_u64_t block_c;       /* amount of blocks in current layer */
-    ls_u64_t block_max;     /* max amount of blocks that can fit in this layer */
-    ls_u64_t head_i;        /* index of block furthest in the layer */
-    void*    deleted_head;  /* see implementation details */
+    void*       layer_p;       /* address of start of layer */
+    ls_u64_t    block_z;       /* size of block in current layer (pow of 2) */
+    ls_u64_t    block_c;       /* amount of blocks in current layer */
+    ls_u64_t    block_max;     /* max amount of blocks that can fit in this layer */
+    ls_u64_t    head_i;        /* index of block furthest in the layer */
+    void*       deleted_head;  /* see implementation details */
 }
 ls_lalloc_layer_header_;
 
@@ -165,6 +172,11 @@ static struct
     void*     vspace_p;
     ls_u64_t  page_z;  
     ls_lalloc_layer_header_ header_a[LS_LALLOC_LAYER_C_];
+
+    /* thread safety: prevent multiple threads
+     * from allocating at the same time, which
+     * would lead to race conditions */
+    atomic_flag spinlock;
 }
 ls_lalloc_meta_  =
 {
@@ -183,6 +195,9 @@ static void* ls_lalloc_layer_get_del_spot_(ls_u8_t layer_i);
 static void  ls_lalloc_layer_del_spot_    (ls_u8_t layer_i, void* spot);
 
 static ls_u64_t ls_lalloc_page_size_(void);
+
+static void ls_lalloc_spinlock_  (void);
+static void ls_lalloc_spinunlock_(void);
 
 
 static LS_INLINE ls_bool_t ls_lalloc_init(void)
@@ -213,7 +228,8 @@ static LS_INLINE ls_bool_t ls_lalloc_init(void)
         ls_lalloc_meta_.header_a[i].deleted_head = LS_NULL;
     }
 
-    ls_lalloc_meta_.page_z = ls_lalloc_page_size_();
+    ls_lalloc_meta_.page_z   = ls_lalloc_page_size_();
+    ls_lalloc_meta_.spinlock = (atomic_flag) ATOMIC_FLAG_INIT;
 
     ls_lalloc_meta_.initialized = LS_TRUE;
     return LS_TRUE;
@@ -222,7 +238,7 @@ static LS_INLINE ls_bool_t ls_lalloc_init(void)
 
 void* ls_lalloc(ls_u64_t size)
 {
-    // usleep(1000);  /* lower this every time you push an update */
+    ls_lalloc_spinlock_();
     
     if (ls_lalloc_meta_.initialized != LS_TRUE || size > LS_LALLOC_MAX_Z)
     {
@@ -242,6 +258,8 @@ void* ls_lalloc(ls_u64_t size)
             LS_ROUND_UP_TO(block_z, ls_lalloc_meta_.page_z), PROT_READ | PROT_WRITE);
     #endif
 
+    ls_lalloc_spinunlock_();
+
     return spot;
 }
 
@@ -251,6 +269,8 @@ void* ls_relalloc(void* mem, ls_u64_t size)
     {
         return ls_lalloc(size);
     }
+
+    ls_lalloc_spinlock_();
 
     ls_u64_t block_z = 1llu << LS_CEIL_LOG2(LS_MIN(size, LS_LALLOC_MIN_Z));
 
@@ -295,14 +315,19 @@ void* ls_relalloc(void* mem, ls_u64_t size)
 
     ls_lalloc_layer_del_spot_(old_layer_i, mem);
 
+    ls_lalloc_spinunlock_();
+
     return spot;
 }
 
 void ls_lfree(void* mem)
 {
-    ls_u8_t layer_i = LS_CAST(LS_PARITHM(mem) - LS_PARITHM(ls_lalloc_meta_.vspace_p), ls_u64_t) / LS_LALLOC_LAYER_Z_;
+    ls_lalloc_spinlock_();
 
+    ls_u8_t layer_i = LS_CAST(LS_PARITHM(mem) - LS_PARITHM(ls_lalloc_meta_.vspace_p), ls_u64_t) / LS_LALLOC_LAYER_Z_;
     ls_lalloc_layer_del_spot_(layer_i, mem);
+
+    ls_lalloc_spinunlock_();
 }
 
 
@@ -430,6 +455,20 @@ static LS_INLINE ls_u64_t ls_lalloc_page_size_(void)
     #elif defined(LS_UNIX_OS)
         return sysconf(_SC_PAGESIZE);
     #endif
+}
+
+
+static LS_INLINE void ls_lalloc_spinlock_(void)
+{
+    while (atomic_flag_test_and_set_explicit(&ls_lalloc_meta_.spinlock, memory_order_acquire))
+    {
+        ;
+    }
+}
+
+static LS_INLINE void ls_lalloc_spinunlock_(void)
+{
+    atomic_flag_clear_explicit(&ls_lalloc_meta_.spinlock, memory_order_release);
 }
 
 
