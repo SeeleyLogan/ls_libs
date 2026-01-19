@@ -95,6 +95,11 @@
  *  void lfree(mem)
  *      Frees [mem]. [mem] must be returned
  *      by [lalloc] or [relalloc].
+ * 
+ *  bool ls_lalloc_init()
+ *      Initializer function, must be
+ *      called before any other function.
+ *      Returns false on fail.
  */
 
 
@@ -110,15 +115,17 @@
 #endif
 
 
+#ifndef LS_LALLOC_PREFIX_NAMES
+    #define lalloc      ls_lalloc
+    #define relalloc    ls_relalloc
+    #define lfree       ls_lfree
+    #define lalloc_init ls_lalloc_init
+#endif
+
+
 #if !defined(LS_LALLOC_IMPL)
 
     /* API */
-
-    #ifndef LS_LALLOC_PREFIX_NAMES
-        #define lalloc   ls_lalloc
-        #define relalloc ls_relalloc
-        #define lfree    ls_lfree
-    #endif
 
     extern void* ls_lalloc  (ls_u64_t size);
     extern void* ls_relalloc(void*    mem, ls_u64_t size);
@@ -130,7 +137,7 @@
 #include <stdatomic.h>
 
 #if defined(LS_WINDOWS_OS)
-    #warn "incomplete windows implementation"
+    #include <windows.h>
 #elif defined(LS_UNIX_OS)
     #include <sys/mman.h>
     #include <unistd.h>
@@ -203,7 +210,7 @@ static void ls_lalloc_spinunlock_(void);
 static LS_INLINE ls_bool_t ls_lalloc_init(void)
 {
     #if defined(LS_WINDOWS_OS)
-        #warn "incomplete windows implementation"
+        #warning "incomplete windows implementation"
     #elif defined(LS_UNIX_OS)
         ls_lalloc_meta_.vspace_p = mmap(LS_NULL, LS_LALLOC_VSPACE_Z_, PROT_NONE,
             MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -251,7 +258,7 @@ void* ls_lalloc(ls_u64_t size)
     void* spot = ls_lalloc_layer_get_spot_(layer_i);
 
     #if defined(LS_WINDOWS_OS)
-        #warn "incomplete windows implementation"
+        #warning "incomplete windows implementation"
     #elif defined(LS_UNIX_OS)
         /* all this alignment (rounding) is for spots smaller than page size*/
         mprotect(LS_CAST(LS_ROUND_DOWN_TO(LS_CAST(spot, ls_u64_t), ls_lalloc_meta_.page_z), void*),
@@ -282,7 +289,7 @@ void* ls_relalloc(void* mem, ls_u64_t size)
     if (ls_lalloc_meta_.header_a[new_layer_i].block_z < LS_LALLOC_MEMCPY_THRES)
     {
         #if defined(LS_WINDOWS_OS)
-            #warn "incomplete windows implementation"
+            #warning "incomplete windows implementation"
         #elif defined(LS_UNIX_OS)
             /* all this alignment (rounding) is for spots smaller than page size*/
             mprotect(LS_CAST(LS_ROUND_DOWN_TO(LS_CAST(spot, ls_u64_t), ls_lalloc_meta_.page_z), void*),
@@ -296,18 +303,16 @@ void* ls_relalloc(void* mem, ls_u64_t size)
         #define LS_HEADER_TMP_ ls_lalloc_meta_.header_a[old_layer_i]
 
         #if defined(LS_WINDOWS_OS)
-            #warn "incomplete windows implementation"
+            #warning "incomplete windows implementation"
         #elif defined(LS_UNIX_OS)
+            mremap(mem, LS_HEADER_TMP_.block_z, LS_HEADER_TMP_.block_z,
+                MREMAP_FIXED | MREMAP_MAYMOVE | MREMAP_DONTUNMAP, spot);
 
-        mremap(mem, LS_HEADER_TMP_.block_z, LS_HEADER_TMP_.block_z,
-            MREMAP_FIXED | MREMAP_MAYMOVE | MREMAP_DONTUNMAP, spot);
-
-        mprotect(LS_PARITHM(spot) + LS_HEADER_TMP_.block_z,
-            LS_HEADER_TMP_.block_z, PROT_READ | PROT_WRITE);
-        
-        mprotect(mem,
-            ls_lalloc_meta_.page_z, PROT_READ | PROT_WRITE);
-        
+            mprotect(LS_PARITHM(spot) + LS_HEADER_TMP_.block_z,
+                LS_HEADER_TMP_.block_z, PROT_READ | PROT_WRITE);
+            
+            mprotect(mem,
+                ls_lalloc_meta_.page_z, PROT_READ | PROT_WRITE);
         #endif  /* #if defined(LS_WINDOWS_OS) */
     
         #undef LS_HEADER_TMP_
@@ -392,8 +397,12 @@ static LS_INLINE void* ls_lalloc_layer_get_del_spot_(ls_u8_t layer_i)
         LS_HEADER_TMP_.deleted_head = LS_CAST(old_head_node, void**)[0];
 
         /* free the now empty node */
-        madvise(old_head_node, ls_lalloc_meta_.page_z, MADV_DONTNEED);
-        mprotect(old_head_node, ls_lalloc_meta_.page_z, PROT_NONE);
+        #if defined(LS_WINDOWS_OS)
+            #warning "incomplete windows implementation"
+        #elif defined(LS_UNIX_OS)
+            madvise(old_head_node, ls_lalloc_meta_.page_z, MADV_DONTNEED);
+            mprotect(old_head_node, ls_lalloc_meta_.page_z, PROT_NONE);
+        #endif
     }
 
     return spot;
@@ -432,10 +441,14 @@ static LS_INLINE void ls_lalloc_layer_del_spot_(ls_u8_t layer_i, void* spot)
         /* free the rest of the new spot. note that for
          * resizing allocations, the pages being freed
          * we're previously freed and this step is redundant */
-        madvise(PARITHM(spot) + ls_lalloc_meta_.page_z,
-            LS_HEADER_TMP_.block_z - ls_lalloc_meta_.page_z, MADV_DONTNEED);
-        mprotect(PARITHM(spot) + ls_lalloc_meta_.page_z,
-            LS_HEADER_TMP_.block_z - ls_lalloc_meta_.page_z, PROT_NONE);
+        #if defined(LS_WINDOWS_OS)
+            #warning "incomplete windows implementation"
+        #elif defined(LS_UNIX_OS)
+            madvise(PARITHM(spot) + ls_lalloc_meta_.page_z,
+                LS_HEADER_TMP_.block_z - ls_lalloc_meta_.page_z, MADV_DONTNEED);
+            mprotect(PARITHM(spot) + ls_lalloc_meta_.page_z,
+                LS_HEADER_TMP_.block_z - ls_lalloc_meta_.page_z, PROT_NONE);
+        #endif 
     }
 
     LS_CAST(LS_HEADER_TMP_.deleted_head, void**)[*link_c + 2] = spot;  /* +2 accounts for backlink and link count */
