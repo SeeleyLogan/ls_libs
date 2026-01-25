@@ -12,65 +12,32 @@
  *
  *  Compilation
  *
- *      This library is expected to a component of
- *      a larger library, explaination in usage.
- *
- *      Compiling this file requires two flags:
- *          -DLS_LALLOC_IMPL
- *          -D_GNU_SOURCE (linux only, see notes)
- *          -xc (see notes)
- *
- *      Example:
- *          cc -DLS_LALLOC_IMPL -xc -D_GNU_SOURCE -shared -fPIC ls_lalloc.h -o libls_lalloc.so
- *
- *      Notes:
- *          -xc flag is only required if you are
- *          compiling .h files as a shared object.
- *
- *          Defining _GNU_SOURCE exposes mremap, a
- *          crucial function for remapping pages on
- *          Linux. Honestly it should be apart of 
- *          sys/mman.h by default.
+ *      _GNU_SOURCE must be defined on linux as
+ *      it exposes mremap, which is used in the
+ *      O(1) page remapping.
  *
  *  Usage
  *
- *      Currently this library expects a second
- *      header file called ls_macros.h to be
- *      placed along side it, this may change.
+ *      Include this file to use any of this library's functions.
+ *      However, by default, including the file does not
+ *      include its implementation.
+ * 
+ *      To include the implementation for this library: add
+ *      #define LS_LALLOC_IMPL above #include "ls_lalloc.h"
+ *      This must only happen in one translation unit (TU).
+ * 
+ *      Currently, this library expects a second header
+ *      file called ls_macros.h to be placed along side it.
+ *      https://github.com/SeeleyLogan/ls_libs/blob/main/ls_macros.h
  *
- *      Feel free to copy the contents of ls_macros.h
- *      and replace #include "./ls_macros.h" with
- *      the contents if you only want one file.
- *
- *      Any external translation units (TU) linking
- *      against the TU with this library's
- *      definitions may simply include this file
- *      and call any external function.
- *
- *      Before any calls to functions can be made,
- *      this library's initializer must be called.
- *      The function is local to the TU containing
- *      the implementation for this library.
- *
- *      Recommended usage when dealing with multiple
- *      TUs is to have the "main" TU call the init,
- *      hence why this library should be a component
- *      of another library.
- *
- *      The library exports three functions:
- *      lalloc, relalloc and lfree, all of which are
- *      drop-in replacements for standard malloc,
- *      realloc and free.
- *
- *      If you're worried about name collisions,
- *      you can define LS_LALLOC_PREFIX_NAMES
+ *      You can define LS_LALLOC_PREFIX_NAMES
  *      which will add "ls_" in front of all the
- *      external functions.
+ *      library's functions, handling name collisions.
  *
  *      Any functions suffixed with '_' are
  *      internal helper functions and should never 
  *      be called. They are also not exposed outside
- *      the TU containing the definitions.
+ *      the TU containing the implementation.
  *
  *      Even though memory remapping is O(1), the
  *      time it takes the operating system to
@@ -95,11 +62,6 @@
  *  void lfree(mem)
  *      Frees [mem]. [mem] must be returned
  *      by [lalloc] or [relalloc].
- * 
- *  bool ls_lalloc_init()
- *      Initializer function, must be
- *      called before any other function.
- *      Returns false on fail.
  */
 
 
@@ -119,7 +81,6 @@
     #define lalloc      ls_lalloc
     #define relalloc    ls_relalloc
     #define lfree       ls_lfree
-    #define lalloc_init ls_lalloc_init
 #endif
 
 
@@ -146,10 +107,10 @@
 
 /* These numbers are calculated, do not change */
 #define LS_LALLOC_VSPACE_Z_     0x230000000000llu /* 35 TiB */
-#define LS_LALLOC_MIN_Z         64llu             /* bytes */
-#define LS_LALLOC_MIN_SHIFT_    6                 /* log2(LS_LALLOC_MIN_Z) */
-#define LS_LALLOC_MAX_Z         0x10000000000llu  /* 1 TiB */
-#define LS_LALLOC_LAYER_Z_      LS_LALLOC_MAX_Z
+#define LS_LALLOC_MIN_Z_         64llu             /* bytes */
+#define LS_LALLOC_MIN_SHIFT_    6                 /* log2(LS_LALLOC_MIN_Z_) */
+#define LS_LALLOC_MAX_Z_         0x10000000000llu  /* 1 TiB */
+#define LS_LALLOC_LAYER_Z_      LS_LALLOC_MAX_Z_
 #define LS_LALLOC_LAYER_C_      35llu
 
 /* Arbitrary constant, used as a threshold to
@@ -176,22 +137,25 @@ ls_lalloc_layer_header_;
 static struct
 {
     ls_bool_t initialized;
+
     void*     vspace_p;
     ls_u64_t  page_z;  
     ls_lalloc_layer_header_ header_a[LS_LALLOC_LAYER_C_];
 
-    /* thread safety: prevent multiple threads
-     * from allocating at the same time, which
-     * would lead to race conditions */
     atomic_flag spinlock;
+
+    #if defined(LS_WINDOWS_OS)
+    HANDLE proc_h;
+    #endif
 }
 ls_lalloc_meta_  =
 {
     .initialized = LS_FALSE,
+    .spinlock    = ATOMIC_FLAG_INIT
 };
 
 
-static ls_bool_t ls_lalloc_init(void) LS_LIBFN;
+static ls_bool_t ls_lalloc_init_(void);
 
 void* ls_lalloc     (ls_u64_t size);
 void* ls_relalloc   (void*    mem, ls_u64_t size);
@@ -207,7 +171,7 @@ static void ls_lalloc_spinlock_  (void);
 static void ls_lalloc_spinunlock_(void);
 
 
-static LS_INLINE ls_bool_t ls_lalloc_init(void)
+static LS_INLINE ls_bool_t ls_lalloc_init_(void)
 {
     #if defined(LS_WINDOWS_OS)
         #warning "incomplete windows implementation"
@@ -223,20 +187,25 @@ static LS_INLINE ls_bool_t ls_lalloc_init(void)
 
     for (ls_u8_t i = 0; i < LS_LALLOC_LAYER_C_; i += 1)
     {
-        ls_lalloc_meta_.header_a[i].layer_p = LS_PARITHM(ls_lalloc_meta_.vspace_p) + i * LS_LALLOC_MAX_Z;
+        ls_lalloc_meta_.header_a[i] = (ls_lalloc_layer_header_)
+        {
+            .layer_p = LS_PARITHM(ls_lalloc_meta_.vspace_p) + i * LS_LALLOC_MAX_Z_,
 
-        /* each layer's block size is twice the one below it */
-        ls_lalloc_meta_.header_a[i].block_z      = LS_LALLOC_MIN_Z << i;
+            /* each layer's block size is twice the one below it */
+            .block_z      = LS_LALLOC_MIN_Z_ << i,
 
-        ls_lalloc_meta_.header_a[i].block_c      = 0;
-        ls_lalloc_meta_.header_a[i].block_max    = LS_LALLOC_MAX_Z / (LS_LALLOC_MIN_Z << i);
+            .block_c      = 0,
+            .block_max    = LS_LALLOC_MAX_Z_ / (LS_LALLOC_MIN_Z_ << i),
 
-        ls_lalloc_meta_.header_a[i].head_i       = 0;
-        ls_lalloc_meta_.header_a[i].deleted_head = LS_NULL;
+            .head_i       = 0,
+            .deleted_head = LS_NULL,
+        };
     }
 
     ls_lalloc_meta_.page_z   = ls_lalloc_page_size_();
-    ls_lalloc_meta_.spinlock = (atomic_flag) ATOMIC_FLAG_INIT;
+    #if defined(LS_WINDOWS_OS)
+        ls_lalloc_meta_.proc_h = GetCurrentProcess();
+    #endif
 
     ls_lalloc_meta_.initialized = LS_TRUE;
     return LS_TRUE;
@@ -247,13 +216,18 @@ void* ls_lalloc(ls_u64_t size)
 {
     ls_lalloc_spinlock_();
     
-    if (ls_lalloc_meta_.initialized != LS_TRUE || size > LS_LALLOC_MAX_Z)
+    if (ls_lalloc_meta_.initialized != LS_TRUE && ls_lalloc_init_() != LS_TRUE)
+    {
+        return LS_NULL;
+    }
+    
+    if (size > LS_LALLOC_MAX_Z_)
     {
         return LS_NULL;
     }
 
-    ls_u64_t block_z = 1llu << LS_CEIL_LOG2(LS_MIN(size, LS_LALLOC_MIN_Z));
-    ls_u8_t layer_i  = LS_CEIL_LOG2(LS_MIN(size, LS_LALLOC_MIN_Z)) - LS_LALLOC_MIN_SHIFT_;
+    ls_u64_t block_z = 1llu << LS_CEIL_LOG2(LS_MIN(size, LS_LALLOC_MIN_Z_));
+    ls_u8_t layer_i  = LS_CEIL_LOG2(LS_MIN(size, LS_LALLOC_MIN_Z_)) - LS_LALLOC_MIN_SHIFT_;
 
     void* spot = ls_lalloc_layer_get_spot_(layer_i);
 
@@ -279,9 +253,14 @@ void* ls_relalloc(void* mem, ls_u64_t size)
 
     ls_lalloc_spinlock_();
 
-    ls_u64_t block_z = 1llu << LS_CEIL_LOG2(LS_MIN(size, LS_LALLOC_MIN_Z));
+    if (ls_lalloc_meta_.initialized != LS_TRUE && ls_lalloc_init_() != LS_TRUE)
+    {
+        return LS_NULL;
+    }
 
-    ls_u8_t new_layer_i  = LS_CEIL_LOG2(LS_MIN(size, LS_LALLOC_MIN_Z)) - LS_LALLOC_MIN_SHIFT_;
+    ls_u64_t block_z = 1llu << LS_CEIL_LOG2(LS_MIN(size, LS_LALLOC_MIN_Z_));
+
+    ls_u8_t new_layer_i  = LS_CEIL_LOG2(LS_MIN(size, LS_LALLOC_MIN_Z_)) - LS_LALLOC_MIN_SHIFT_;
     ls_u8_t old_layer_i = LS_CAST(LS_PARITHM(mem) - LS_PARITHM(ls_lalloc_meta_.vspace_p), ls_u64_t) / LS_LALLOC_LAYER_Z_;
 
     void* spot = ls_lalloc_layer_get_spot_(new_layer_i);
@@ -305,6 +284,8 @@ void* ls_relalloc(void* mem, ls_u64_t size)
         #if defined(LS_WINDOWS_OS)
             #warning "incomplete windows implementation"
         #elif defined(LS_UNIX_OS)
+            /* if you find yourself here, you forgot to add 
+             * -D_GNU_SOURCE to your compiler flags */
             mremap(mem, LS_HEADER_TMP_.block_z, LS_HEADER_TMP_.block_z,
                 MREMAP_FIXED | MREMAP_MAYMOVE | MREMAP_DONTUNMAP, spot);
 
@@ -486,4 +467,4 @@ static LS_INLINE void ls_lalloc_spinunlock_(void)
 
 
 #endif  /* #if !defined(LS_LALLOC_IMPL) */
-#endif  /* #if !defined(LS_LALLOC_INC_)  */
+#endif  /* #if !defined(LS_LALLOC_INC_) */
