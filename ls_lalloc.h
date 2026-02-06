@@ -1,5 +1,5 @@
 /*
- * ls_lalloc.h - v2.0 - Layered Memory Allocator - Logan Seeley 2026
+ * ls_lalloc.h - v2.1 - Layered Memory Allocator - Logan Seeley 2026
  *
  * Overview
  *
@@ -113,6 +113,15 @@
  * 4096. */
 #define LS_LALLOC_MEMCPY_THRES  0x800000llu  /* 8 MiB */
 
+/* I currently can't figure out how to get read-write-watch
+ * and O(1) memory reallocation working on windows. For now,
+ * setting the memcpy threshold to integer limit is a dirty
+ * fix to force memcpy on windows. */
+#if defined(LS_WINDOWS_OS)
+    #undef LS_LALLOC_MEMCPY_THRES
+    #define LS_LALLOC_MEMCPY_THRES (1llu << 63)
+#endif
+
 
 typedef struct
 {
@@ -182,12 +191,17 @@ static LS_INLINE ls_bool_t ls_lalloc_init_(void)
     ls_lalloc_meta_.layer_z = layer_z;
     ls_lalloc_meta_.layer_c = LS_FLOOR_LOG2(layer_z) - LS_LALLOC_MIN_Z_LOG2_ + 1;
     ls_lalloc_meta_.page_z  = ls_lalloc_page_size_();
-    #if defined(LS_WINDOWS_OS)
-        ls_lalloc_meta_.proc_h = GetCurrentProcess();
-    #endif
 
     #if defined(LS_WINDOWS_OS)
-        #warning "incomplete windows implementation"
+        ls_lalloc_meta_.proc_h = GetCurrentProcess();
+
+        ls_lalloc_meta_.vspace_p = VirtualAllocEx(ls_lalloc_meta_.proc_h, LS_NULL,
+            LS_LALLOC_LAYER_Z_ * LS_LALLOC_LAYER_C_, MEM_RESERVE | MEM_WRITE_WATCH, PAGE_NOACCESS);
+
+        if (ls_lalloc_meta_.vspace_p == LS_NULL)
+        {
+            return LS_FALSE;
+        }
     #elif defined(LS_UNIX_OS)
         ls_lalloc_meta_.vspace_p = mmap(LS_NULL, LS_LALLOC_LAYER_Z_ * LS_LALLOC_LAYER_C_,
             PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -240,10 +254,12 @@ void* ls_lalloc(ls_u64_t size)
 
     void* spot = ls_lalloc_layer_get_spot_(layer_i);
 
+    /* all this alignment (rounding) is for spots smaller than page size*/
     #if defined(LS_WINDOWS_OS)
-        #warning "incomplete windows implementation"
+        VirtualAllocEx(ls_lalloc_meta_.proc_h,
+            LS_CAST(LS_ROUND_DOWN_TO(LS_CAST(spot, ls_u64_t), ls_lalloc_meta_.page_z), void*),
+            LS_ROUND_UP_TO(block_z, ls_lalloc_meta_.page_z), MEM_COMMIT, PAGE_READWRITE);
     #elif defined(LS_UNIX_OS)
-        /* all this alignment (rounding) is for spots smaller than page size*/
         mprotect(LS_CAST(LS_ROUND_DOWN_TO(LS_CAST(spot, ls_u64_t), ls_lalloc_meta_.page_z), void*),
             LS_ROUND_UP_TO(block_z, ls_lalloc_meta_.page_z), PROT_READ | PROT_WRITE);
     #endif
@@ -274,12 +290,15 @@ void* ls_relalloc(void* mem, ls_u64_t size)
 
     void* spot = ls_lalloc_layer_get_spot_(new_layer_i);
 
-    if (ls_lalloc_meta_.header_a[new_layer_i].block_z < LS_LALLOC_MEMCPY_THRES)
+    /* compiler should optimize out the if-statement on windows while the
+     * copy threshold is u64 max */
+    if (ls_lalloc_meta_.header_a[new_layer_i].block_z <= LS_LALLOC_MEMCPY_THRES)
     {
         #if defined(LS_WINDOWS_OS)
-            #warning "incomplete windows implementation"
+            VirtualAllocEx(ls_lalloc_meta_.proc_h,
+                LS_CAST(LS_ROUND_DOWN_TO(LS_CAST(spot, ls_u64_t), ls_lalloc_meta_.page_z), void*),
+                LS_ROUND_UP_TO(block_z, ls_lalloc_meta_.page_z), MEM_COMMIT, PAGE_READWRITE);
         #elif defined(LS_UNIX_OS)
-            /* all this alignment (rounding) is for spots smaller than page size*/
             mprotect(LS_CAST(LS_ROUND_DOWN_TO(LS_CAST(spot, ls_u64_t), ls_lalloc_meta_.page_z), void*),
                 LS_ROUND_UP_TO(block_z, ls_lalloc_meta_.page_z), PROT_READ | PROT_WRITE);
         #endif
@@ -291,7 +310,7 @@ void* ls_relalloc(void* mem, ls_u64_t size)
         #define LS_HEADER_TMP_ ls_lalloc_meta_.header_a[old_layer_i]
 
         #if defined(LS_WINDOWS_OS)
-            #warning "incomplete windows implementation"
+            // #warning "incomplete windows implementation"
         #elif defined(LS_UNIX_OS)
             /* if you find yourself here, you forgot to add 
              * -D_GNU_SOURCE to your compiler flags */
@@ -388,7 +407,11 @@ static LS_INLINE void* ls_lalloc_layer_get_del_spot_(ls_u8_t layer_i)
 
         /* free the now empty node */
         #if defined(LS_WINDOWS_OS)
-            #warning "incomplete windows implementation"
+            DWORD old_prot;
+            VirtualFreeEx(ls_lalloc_meta_.proc_h, old_head_node,
+                ls_lalloc_meta_.page_z, MEM_DECOMMIT);
+            VirtualProtectEx(ls_lalloc_meta_.proc_h, old_head_node,
+                ls_lalloc_meta_.page_z, PAGE_READWRITE, &old_prot);
         #elif defined(LS_UNIX_OS)
             madvise(old_head_node, ls_lalloc_meta_.page_z, MADV_DONTNEED);
             mprotect(old_head_node, ls_lalloc_meta_.page_z, PROT_NONE);
@@ -432,7 +455,11 @@ static LS_INLINE void ls_lalloc_layer_del_spot_(ls_u8_t layer_i, void* spot)
          * resizing allocations, the pages being freed
          * we're previously freed and this step is redundant */
         #if defined(LS_WINDOWS_OS)
-            #warning "incomplete windows implementation"
+            DWORD old_prot;
+            VirtualFreeEx(ls_lalloc_meta_.proc_h, PARITHM(spot) + ls_lalloc_meta_.page_z,
+                LS_HEADER_TMP_.block_z - ls_lalloc_meta_.page_z, MEM_DECOMMIT);
+            VirtualProtectEx(ls_lalloc_meta_.proc_h, PARITHM(spot) + ls_lalloc_meta_.page_z,
+                LS_HEADER_TMP_.block_z - ls_lalloc_meta_.page_z, PAGE_READWRITE, &old_prot);
         #elif defined(LS_UNIX_OS)
             madvise(PARITHM(spot) + ls_lalloc_meta_.page_z,
                 LS_HEADER_TMP_.block_z - ls_lalloc_meta_.page_z, MADV_DONTNEED);
