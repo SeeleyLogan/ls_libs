@@ -51,47 +51,72 @@
 		#define LS_UNSUPPORTED_OS
 	#endif
 
-	#if defined(__has_attribute) && __has_attribute(always_inline) && !defined(LS_NO_INLINE) && __STDC_VERSION__ >= 199901L
-		#define LS_INLINE inline __attribute__((always_inline))
+	#if defined(__has_attribute)
+		#if __has_attribute(always_inline) && !defined(LS_NO_INLINE) && __STDC_VERSION__ >= 199901L
+			#define LS_INLINE inline __attribute__((always_inline))
+		#endif
 	#elif __STDC_VERSION__ >= 199901L
 		#define LS_INLINE inline
 	#else
 		#define LS_INLINE
 	#endif
 
-	#if defined(__has_attribute) && __has_attribute(unused)
-		#define LS_LIBFN __attribute__((unused))  /* library function: dont warn if not used */
+	#if defined(__has_attribute)
+		#if __has_attribute(unused)
+			#define LS_LIBFN __attribute__((unused))  /* library function: dont warn if not used */
+		#endif
 	#else
 		#define LS_LIBFN
 	#endif
 
-	#if defined(__has_attribute) && __has_attribute(LS_USED)
-		#define LS_USED __attribute__((used))
+	#if defined(__has_attribute)
+		#if __has_attribute(LS_USED)
+			#define LS_USED __attribute__((used))
+		#endif
 	#else
 		#define LS_USED
 	#endif
 
-	#if defined(__has_attribute) && __has_attribute(deprecated)
-		#define LS_DEPRECATED __attribute__((deprecated))
+	#if defined(__has_attribute)
+		#if __has_attribute(deprecated)
+			#define LS_DEPRECATED __attribute__((deprecated))
+		#endif
 	#else
 		#define LS_DEPRECATED
 	#endif
 
-	#if defined(__has_attribute) && __has_attribute(hot)
-		#define LS_HOT __attribute__((hot))
+	#if defined(__has_attribute)
+		#if __has_attribute(hot)
+			#define LS_HOT __attribute__((hot))
+		#endif
 	#else
 		#define LS_HOT
 	#endif
 
-	#if defined(__has_attribute) && __has_attribute(cold)
-		#define LS_COLD __attribute__((cold))
+	#if defined(__has_attribute)
+		#if __has_attribute(cold)
+			#define LS_COLD __attribute__((cold))
+		#endif
 	#else
 		#define LS_COLD
 	#endif
 
     #include <stdlib.h>
+	#include <stdio.h>
 	#include <string.h>
 	#include <assert.h>
+
+	#if defined(DEBUG)
+		/* force stdout to flush immediately in debug mode */
+		#define LS_OUTBUF setvbuf(stdout, NULL, _IONBF, 0)
+	#else
+		/* when outside of debug mode, creating
+		 * a print buffer forces stdout to
+		 * only flush when the buffer is full,
+		 * increasing print speeds */
+		char ls_stdout_b_[1024];
+		#define LS_OUTBUF setvbuf(stdout, ls_stdout_b_, _IOFBF, sizeof(ls_stdout_b_))
+	#endif
 
 	#define LS_EXIT 	exit
 	#define LS_MEMSET 	memset
@@ -152,6 +177,8 @@
 	#define HOT			LS_HOT
 	#define COLD		LS_COLD
 
+	#define OUTBUF		LS_OUTBUF
+
 	#define EXIT        LS_EXIT
 	#define MEMSET      LS_MEMSET
 	#define MEMCPY      LS_MEMCPY
@@ -174,21 +201,3 @@
 	#define MAX			LS_MAX
 
 #endif
-
-
-/*
- * Copyright (C) 2025  Logan Seeley
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
- */
