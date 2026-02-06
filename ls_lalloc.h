@@ -1,5 +1,5 @@
 /*
- * ls_malloc.h - v2.0 - layered memory allocator - Logan Seeley 2026
+ * ls_lalloc.h - v2.0 - Layered Memory Allocator - Logan Seeley 2026
  *
  * Overview
  *
@@ -23,14 +23,14 @@
  *      include its implementation.
  * 
  *      To include the implementation for this library: add
- *      #define LS_MALLOC_IMPL above #include "ls_malloc.h"
+ *      #define LS_LALLOC_IMPL above #include "ls_lalloc.h"
  *      This must only happen in one translation unit (TU).
  * 
  *      Currently, this library expects a second header
  *      file called ls_macros.h to be placed along side it.
  *      https://github.com/SeeleyLogan/ls_libs/blob/main/ls_macros.h
  *
- *      You can define LS_MALLOC_PREFIX_NAMES
+ *      You can define LS_LALLOC_PREFIX_NAMES
  *      which will add "ls_" in front of all the
  *      library's functions, handling name collisions.
  *
@@ -43,30 +43,30 @@
  *      time it takes the operating system to
  *      complete the task can still be longer than
  *      a memcpy. Therefore an arbitrary threshold
- *      called LS_MALLOC_MEMCPY_THRES is set.
+ *      called LS_LALLOC_MEMCPY_THRES is set.
  *      See the defintion for furhur information.
  *
- *  void* malloc(u64 size)
+ *  void* lalloc(u64 size)
  *      Returns a memory region of [size]
  *      rounded up to the nearest exponent
  *      of 2, or NULL on fail.
  *
- *  void* realloc(void* mem, u64 size)
+ *  void* relalloc(void* mem, u64 size)
  *      Copies the contents of [mem] into a new
  *      allocation of [size] rounded up to the
  *      nearest exponent of 2, or NULL on fail.
  *      [mem] must 1. have been returned by either
- *      [malloc] or [realloc] - 2. be NULL, in
- *      which case will behave as malloc(size).
+ *      [lalloc] or [relalloc] - 2. be NULL, in
+ *      which case will behave as lalloc(size).
  *
- *  void free(mem)
+ *  void lfree(mem)
  *      Frees [mem]. [mem] must be returned
- *      by [malloc] or [realloc].
+ *      by [lalloc] or [relalloc].
  */
 
 
-#if !defined(LS_MALLOC_INC_)
-#define LS_MALLOC_INC_
+#if !defined(LS_LALLOC_INC_)
+#define LS_LALLOC_INC_
 
 
 #include "./ls_macros.h"
@@ -77,20 +77,20 @@
 #endif
 
 
-#if !defined(LS_MALLOC_PREFIX_NAMES)
-    #define malloc  ls_malloc
-    #define realloc ls_realloc
-    #define free    ls_free
+#if !defined(LS_LALLOC_PREFIX_NAMES)
+    #define lalloc      ls_lalloc
+    #define relalloc    ls_relalloc
+    #define lfree       ls_lfree
 #endif
 
 
-#if !defined(LS_MALLOC_IMPL)
+#if !defined(LS_LALLOC_IMPL)
 
     /* API */
 
-    extern void* ls_malloc (ls_u64_t size);
-    extern void* ls_realloc(void*    mem, ls_u64_t size);
-    extern void  ls_free   (void*    mem);
+    extern void* ls_lalloc  (ls_u64_t size);
+    extern void* ls_relalloc(void*    mem, ls_u64_t size);
+    extern void  ls_lfree   (void*    mem);
 
 #else
 
@@ -111,7 +111,7 @@
  * resize if you want to find the optimal threshold.
  * Must be larger than the page size, almost always
  * 4096. */
-#define LS_MALLOC_MEMCPY_THRES  0x800000llu  /* 8 MiB */
+#define LS_LALLOC_MEMCPY_THRES  0x800000llu  /* 8 MiB */
 
 
 typedef struct
@@ -123,7 +123,7 @@ typedef struct
     ls_u64_t    head_i;        /* index of block furthest in the layer */
     void*       deleted_head;  /* see implementation details */
 }
-ls_malloc_layer_header_;
+ls_lalloc_layer_header_;
 
 
 static struct
@@ -137,7 +137,7 @@ static struct
     ls_u64_t  layer_z;
     ls_u8_t   layer_c;
 
-    ls_malloc_layer_header_ header_a[256];
+    ls_lalloc_layer_header_ header_a[256];
 
     atomic_flag spinlock;
 
@@ -145,150 +145,150 @@ static struct
     HANDLE proc_h;
     #endif
 }
-ls_malloc_meta_  =
+ls_lalloc_meta_  =
 {
     .initialized = LS_FALSE,
     .spinlock    = ATOMIC_FLAG_INIT
 };
 
-#define LS_MALLOC_MIN_Z_        64llu             /* bytes */
-#define LS_MALLOC_MIN_Z_LOG2_   6                 /* log2(LS_MALLOC_MIN_Z_) */
-#define LS_MALLOC_LAYER_Z_      ls_malloc_meta_.layer_z
-#define LS_MALLOC_MAX_Z_        LS_MALLOC_LAYER_Z_
-#define LS_MALLOC_LAYER_C_      ls_malloc_meta_.layer_c
+#define LS_LALLOC_MIN_Z_        64llu             /* bytes */
+#define LS_LALLOC_MIN_Z_LOG2_   6                 /* log2(LS_LALLOC_MIN_Z_) */
+#define LS_LALLOC_LAYER_Z_      ls_lalloc_meta_.layer_z
+#define LS_LALLOC_MAX_Z_        LS_LALLOC_LAYER_Z_
+#define LS_LALLOC_LAYER_C_      ls_lalloc_meta_.layer_c
 
 
-static ls_bool_t ls_malloc_init_(void);
+static ls_bool_t ls_lalloc_init_(void);
 
-void* ls_malloc     (ls_u64_t size);
-void* ls_realloc    (void*    mem, ls_u64_t size);
-void  ls_malloc_free(void*    mem);
+void* ls_lalloc     (ls_u64_t size);
+void* ls_relalloc   (void*    mem, ls_u64_t size);
+void  ls_lalloc_free(void*    mem);
 
-static void* ls_malloc_layer_get_spot_    (ls_u8_t layer_i);
-static void* ls_malloc_layer_get_del_spot_(ls_u8_t layer_i);
-static void  ls_malloc_layer_del_spot_    (ls_u8_t layer_i, void* spot);
+static void* ls_lalloc_layer_get_spot_    (ls_u8_t layer_i);
+static void* ls_lalloc_layer_get_del_spot_(ls_u8_t layer_i);
+static void  ls_lalloc_layer_del_spot_    (ls_u8_t layer_i, void* spot);
 
-static ls_u64_t ls_malloc_memtotal_ (void);
-static ls_u64_t ls_malloc_page_size_(void);
+static ls_u64_t ls_lalloc_memtotal_ (void);
+static ls_u64_t ls_lalloc_page_size_(void);
 
-static void ls_malloc_spinlock_  (void);
-static void ls_malloc_spinunlock_(void);
+static void ls_lalloc_spinlock_  (void);
+static void ls_lalloc_spinunlock_(void);
 
 
-static LS_INLINE ls_bool_t ls_malloc_init_(void)
+static LS_INLINE ls_bool_t ls_lalloc_init_(void)
 {
-    ls_u64_t layer_z = 1llu << LS_CEIL_LOG2(ls_malloc_memtotal_());
+    ls_u64_t layer_z = 1llu << LS_CEIL_LOG2(ls_lalloc_memtotal_());
 
-    ls_malloc_meta_.layer_z = layer_z;
-    ls_malloc_meta_.layer_c = LS_FLOOR_LOG2(layer_z) - LS_MALLOC_MIN_Z_LOG2_ + 1;
-    ls_malloc_meta_.page_z  = ls_malloc_page_size_();
+    ls_lalloc_meta_.layer_z = layer_z;
+    ls_lalloc_meta_.layer_c = LS_FLOOR_LOG2(layer_z) - LS_LALLOC_MIN_Z_LOG2_ + 1;
+    ls_lalloc_meta_.page_z  = ls_lalloc_page_size_();
     #if defined(LS_WINDOWS_OS)
-        ls_malloc_meta_.proc_h = GetCurrentProcess();
+        ls_lalloc_meta_.proc_h = GetCurrentProcess();
     #endif
 
     #if defined(LS_WINDOWS_OS)
         #warning "incomplete windows implementation"
     #elif defined(LS_UNIX_OS)
-        ls_malloc_meta_.vspace_p = mmap(LS_NULL, LS_MALLOC_LAYER_Z_ * LS_MALLOC_LAYER_C_,
+        ls_lalloc_meta_.vspace_p = mmap(LS_NULL, LS_LALLOC_LAYER_Z_ * LS_LALLOC_LAYER_C_,
             PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
-        if (ls_malloc_meta_.vspace_p == MAP_FAILED)
+        if (ls_lalloc_meta_.vspace_p == MAP_FAILED)
         {
             return LS_FALSE;
         }
     #endif
 
     /* initialize layer headers */
-    for (ls_u8_t i = 0; i < LS_MALLOC_LAYER_C_; i += 1)
+    for (ls_u8_t i = 0; i < LS_LALLOC_LAYER_C_; i += 1)
     {
-        ls_malloc_meta_.header_a[i] = (ls_malloc_layer_header_)
+        ls_lalloc_meta_.header_a[i] = (ls_lalloc_layer_header_)
         {
-            .layer_p = LS_PARITHM(ls_malloc_meta_.vspace_p) + i * LS_MALLOC_MAX_Z_,
+            .layer_p = LS_PARITHM(ls_lalloc_meta_.vspace_p) + i * LS_LALLOC_MAX_Z_,
 
             /* each layer's block size is twice the one below it */
-            .block_z      = LS_MALLOC_MIN_Z_ << i,
+            .block_z      = LS_LALLOC_MIN_Z_ << i,
 
             .block_c      = 0,
-            .block_max    = LS_MALLOC_MAX_Z_ / (LS_MALLOC_MIN_Z_ << i),
+            .block_max    = LS_LALLOC_MAX_Z_ / (LS_LALLOC_MIN_Z_ << i),
 
             .head_i       = 0,
             .deleted_head = LS_NULL,
         };
     }
 
-    ls_malloc_meta_.initialized = LS_TRUE;
+    ls_lalloc_meta_.initialized = LS_TRUE;
     return LS_TRUE;
 }
 
 
-void* ls_malloc(ls_u64_t size)
+void* ls_lalloc(ls_u64_t size)
 {
-    ls_malloc_spinlock_();
+    ls_lalloc_spinlock_();
     
-    if (ls_malloc_meta_.initialized != LS_TRUE && ls_malloc_init_() != LS_TRUE)
+    if (ls_lalloc_meta_.initialized != LS_TRUE && ls_lalloc_init_() != LS_TRUE)
     {
         return LS_NULL;
     }
     
-    if (size > LS_MALLOC_MAX_Z_)
+    if (size > LS_LALLOC_MAX_Z_)
     {
         return LS_NULL;
     }
 
-    ls_u64_t block_z = 1llu << LS_CEIL_LOG2(LS_MIN(size, LS_MALLOC_MIN_Z_));
-    ls_u8_t layer_i  = LS_CEIL_LOG2(LS_MIN(size, LS_MALLOC_MIN_Z_)) - LS_MALLOC_MIN_Z_LOG2_;
+    ls_u64_t block_z = 1llu << LS_CEIL_LOG2(LS_MIN(size, LS_LALLOC_MIN_Z_));
+    ls_u8_t layer_i  = LS_CEIL_LOG2(LS_MIN(size, LS_LALLOC_MIN_Z_)) - LS_LALLOC_MIN_Z_LOG2_;
 
-    void* spot = ls_malloc_layer_get_spot_(layer_i);
+    void* spot = ls_lalloc_layer_get_spot_(layer_i);
 
     #if defined(LS_WINDOWS_OS)
         #warning "incomplete windows implementation"
     #elif defined(LS_UNIX_OS)
         /* all this alignment (rounding) is for spots smaller than page size*/
-        mprotect(LS_CAST(LS_ROUND_DOWN_TO(LS_CAST(spot, ls_u64_t), ls_malloc_meta_.page_z), void*),
-            LS_ROUND_UP_TO(block_z, ls_malloc_meta_.page_z), PROT_READ | PROT_WRITE);
+        mprotect(LS_CAST(LS_ROUND_DOWN_TO(LS_CAST(spot, ls_u64_t), ls_lalloc_meta_.page_z), void*),
+            LS_ROUND_UP_TO(block_z, ls_lalloc_meta_.page_z), PROT_READ | PROT_WRITE);
     #endif
 
-    ls_malloc_spinunlock_();
+    ls_lalloc_spinunlock_();
 
     return spot;
 }
 
-void* ls_realloc(void* mem, ls_u64_t size)
+void* ls_relalloc(void* mem, ls_u64_t size)
 {
     if (mem == LS_NULL)
     {
-        return ls_malloc(size);
+        return ls_lalloc(size);
     }
 
-    ls_malloc_spinlock_();
+    ls_lalloc_spinlock_();
 
-    if (ls_malloc_meta_.initialized != LS_TRUE && ls_malloc_init_() != LS_TRUE)
+    if (ls_lalloc_meta_.initialized != LS_TRUE && ls_lalloc_init_() != LS_TRUE)
     {
         return LS_NULL;
     }
 
-    ls_u64_t block_z = 1llu << LS_CEIL_LOG2(LS_MIN(size, LS_MALLOC_MIN_Z_));
+    ls_u64_t block_z = 1llu << LS_CEIL_LOG2(LS_MIN(size, LS_LALLOC_MIN_Z_));
 
-    ls_u8_t new_layer_i  = LS_CEIL_LOG2(LS_MIN(size, LS_MALLOC_MIN_Z_)) - LS_MALLOC_MIN_Z_LOG2_;
-    ls_u8_t old_layer_i = LS_CAST(LS_PARITHM(mem) - LS_PARITHM(ls_malloc_meta_.vspace_p), ls_u64_t) / LS_MALLOC_LAYER_Z_;
+    ls_u8_t new_layer_i  = LS_CEIL_LOG2(LS_MIN(size, LS_LALLOC_MIN_Z_)) - LS_LALLOC_MIN_Z_LOG2_;
+    ls_u8_t old_layer_i = LS_CAST(LS_PARITHM(mem) - LS_PARITHM(ls_lalloc_meta_.vspace_p), ls_u64_t) / LS_LALLOC_LAYER_Z_;
 
-    void* spot = ls_malloc_layer_get_spot_(new_layer_i);
+    void* spot = ls_lalloc_layer_get_spot_(new_layer_i);
 
-    if (ls_malloc_meta_.header_a[new_layer_i].block_z < LS_MALLOC_MEMCPY_THRES)
+    if (ls_lalloc_meta_.header_a[new_layer_i].block_z < LS_LALLOC_MEMCPY_THRES)
     {
         #if defined(LS_WINDOWS_OS)
             #warning "incomplete windows implementation"
         #elif defined(LS_UNIX_OS)
             /* all this alignment (rounding) is for spots smaller than page size*/
-            mprotect(LS_CAST(LS_ROUND_DOWN_TO(LS_CAST(spot, ls_u64_t), ls_malloc_meta_.page_z), void*),
-                LS_ROUND_UP_TO(block_z, ls_malloc_meta_.page_z), PROT_READ | PROT_WRITE);
+            mprotect(LS_CAST(LS_ROUND_DOWN_TO(LS_CAST(spot, ls_u64_t), ls_lalloc_meta_.page_z), void*),
+                LS_ROUND_UP_TO(block_z, ls_lalloc_meta_.page_z), PROT_READ | PROT_WRITE);
         #endif
 
-        LS_MEMCPY(spot, mem, ls_malloc_meta_.header_a[old_layer_i].block_z);
+        LS_MEMCPY(spot, mem, ls_lalloc_meta_.header_a[old_layer_i].block_z);
     }
     else
     {
-        #define LS_HEADER_TMP_ ls_malloc_meta_.header_a[old_layer_i]
+        #define LS_HEADER_TMP_ ls_lalloc_meta_.header_a[old_layer_i]
 
         #if defined(LS_WINDOWS_OS)
             #warning "incomplete windows implementation"
@@ -302,42 +302,42 @@ void* ls_realloc(void* mem, ls_u64_t size)
                 LS_HEADER_TMP_.block_z, PROT_READ | PROT_WRITE);
             
             mprotect(mem,
-                ls_malloc_meta_.page_z, PROT_READ | PROT_WRITE);
+                ls_lalloc_meta_.page_z, PROT_READ | PROT_WRITE);
         #endif  /* #if defined(LS_WINDOWS_OS) */
     
         #undef LS_HEADER_TMP_
     }
 
-    ls_malloc_layer_del_spot_(old_layer_i, mem);
+    ls_lalloc_layer_del_spot_(old_layer_i, mem);
 
-    ls_malloc_spinunlock_();
+    ls_lalloc_spinunlock_();
 
     return spot;
 }
 
-void ls_free(void* mem)
+void ls_lfree(void* mem)
 {
-    ls_malloc_spinlock_();
+    ls_lalloc_spinlock_();
 
-    ls_u8_t layer_i = LS_CAST(LS_PARITHM(mem) - LS_PARITHM(ls_malloc_meta_.vspace_p), ls_u64_t) / LS_MALLOC_LAYER_Z_;
-    ls_malloc_layer_del_spot_(layer_i, mem);
+    ls_u8_t layer_i = LS_CAST(LS_PARITHM(mem) - LS_PARITHM(ls_lalloc_meta_.vspace_p), ls_u64_t) / LS_LALLOC_LAYER_Z_;
+    ls_lalloc_layer_del_spot_(layer_i, mem);
 
-    ls_malloc_spinunlock_();
+    ls_lalloc_spinunlock_();
 }
 
 
-static LS_INLINE void* ls_malloc_layer_get_spot_(ls_u8_t layer_i)
+static LS_INLINE void* ls_lalloc_layer_get_spot_(ls_u8_t layer_i)
 {
     /* the amount of things you'd need to go wrong
      * to trigger this error makes this check redundant */
     /*
-    if (ls_malloc_meta_.header_a[layer_i].block_c == ls_malloc_meta_.header_a[layer_i].block_max)
+    if (ls_lalloc_meta_.header_a[layer_i].block_c == ls_lalloc_meta_.header_a[layer_i].block_max)
     {
         return LS_NULL;
     }
     */
 
-    #define LS_HEADER_TMP_ ls_malloc_meta_.header_a[layer_i]
+    #define LS_HEADER_TMP_ ls_lalloc_meta_.header_a[layer_i]
     if (LS_HEADER_TMP_.deleted_head == LS_NULL)
     {
         void* spot = LS_PARITHM(LS_HEADER_TMP_.layer_p) + LS_HEADER_TMP_.head_i * LS_HEADER_TMP_.block_z;
@@ -349,14 +349,14 @@ static LS_INLINE void* ls_malloc_layer_get_spot_(ls_u8_t layer_i)
     }
     #undef LS_HEADER_TMP_
 
-    return ls_malloc_layer_get_del_spot_(layer_i);
+    return ls_lalloc_layer_get_del_spot_(layer_i);
 }
 
-static LS_INLINE void* ls_malloc_layer_get_del_spot_(ls_u8_t layer_i)
+static LS_INLINE void* ls_lalloc_layer_get_del_spot_(ls_u8_t layer_i)
 {
-    #define LS_HEADER_TMP_ ls_malloc_meta_.header_a[layer_i]
+    #define LS_HEADER_TMP_ ls_lalloc_meta_.header_a[layer_i]
 
-    if (LS_HEADER_TMP_.block_z < ls_malloc_meta_.page_z)
+    if (LS_HEADER_TMP_.block_z < ls_lalloc_meta_.page_z)
     {
         /* unpacked backwards linked list */
 
@@ -390,8 +390,8 @@ static LS_INLINE void* ls_malloc_layer_get_del_spot_(ls_u8_t layer_i)
         #if defined(LS_WINDOWS_OS)
             #warning "incomplete windows implementation"
         #elif defined(LS_UNIX_OS)
-            madvise(old_head_node, ls_malloc_meta_.page_z, MADV_DONTNEED);
-            mprotect(old_head_node, ls_malloc_meta_.page_z, PROT_NONE);
+            madvise(old_head_node, ls_lalloc_meta_.page_z, MADV_DONTNEED);
+            mprotect(old_head_node, ls_lalloc_meta_.page_z, PROT_NONE);
         #endif
     }
 
@@ -400,11 +400,11 @@ static LS_INLINE void* ls_malloc_layer_get_del_spot_(ls_u8_t layer_i)
     #undef LS_HEADER_TMP_
 }
 
-static LS_INLINE void ls_malloc_layer_del_spot_(ls_u8_t layer_i, void* spot)
+static LS_INLINE void ls_lalloc_layer_del_spot_(ls_u8_t layer_i, void* spot)
 {
-    #define LS_HEADER_TMP_ ls_malloc_meta_.header_a[layer_i]
+    #define LS_HEADER_TMP_ ls_lalloc_meta_.header_a[layer_i]
 
-    if (LS_HEADER_TMP_.block_z < ls_malloc_meta_.page_z)
+    if (LS_HEADER_TMP_.block_z < ls_lalloc_meta_.page_z)
     {
         /* unpacked backwards linked list */
         LS_CAST(spot, void**)[0]    = LS_HEADER_TMP_.deleted_head;
@@ -419,7 +419,7 @@ static LS_INLINE void ls_malloc_layer_del_spot_(ls_u8_t layer_i, void* spot)
      * in the current node */
     ls_u64_t* link_c = &(LS_CAST(LS_HEADER_TMP_.deleted_head, ls_u64_t*)[1]);
     
-    if ((LS_HEADER_TMP_.deleted_head == LS_NULL) || (*link_c == ls_malloc_meta_.page_z / sizeof(void*) - 2))
+    if ((LS_HEADER_TMP_.deleted_head == LS_NULL) || (*link_c == ls_lalloc_meta_.page_z / sizeof(void*) - 2))
     {
         /* node is full */
 
@@ -434,10 +434,10 @@ static LS_INLINE void ls_malloc_layer_del_spot_(ls_u8_t layer_i, void* spot)
         #if defined(LS_WINDOWS_OS)
             #warning "incomplete windows implementation"
         #elif defined(LS_UNIX_OS)
-            madvise(PARITHM(spot) + ls_malloc_meta_.page_z,
-                LS_HEADER_TMP_.block_z - ls_malloc_meta_.page_z, MADV_DONTNEED);
-            mprotect(PARITHM(spot) + ls_malloc_meta_.page_z,
-                LS_HEADER_TMP_.block_z - ls_malloc_meta_.page_z, PROT_NONE);
+            madvise(PARITHM(spot) + ls_lalloc_meta_.page_z,
+                LS_HEADER_TMP_.block_z - ls_lalloc_meta_.page_z, MADV_DONTNEED);
+            mprotect(PARITHM(spot) + ls_lalloc_meta_.page_z,
+                LS_HEADER_TMP_.block_z - ls_lalloc_meta_.page_z, PROT_NONE);
         #endif 
     }
 
@@ -448,7 +448,7 @@ static LS_INLINE void ls_malloc_layer_del_spot_(ls_u8_t layer_i, void* spot)
 }
 
 
-static LS_INLINE ls_u64_t ls_malloc_memtotal_(void)
+static LS_INLINE ls_u64_t ls_lalloc_memtotal_(void)
 {
     #ifdef _WIN32
         MEMORYSTATUS memstat;
@@ -467,7 +467,7 @@ static LS_INLINE ls_u64_t ls_malloc_memtotal_(void)
     #endif
 }
 
-static LS_INLINE ls_u64_t ls_malloc_page_size_(void)
+static LS_INLINE ls_u64_t ls_lalloc_page_size_(void)
 {
     #if defined(LS_WINDOWS_OS)
         SYSTEM_INFO sysinfo;
@@ -480,19 +480,19 @@ static LS_INLINE ls_u64_t ls_malloc_page_size_(void)
 }
 
 
-static LS_INLINE void ls_malloc_spinlock_(void)
+static LS_INLINE void ls_lalloc_spinlock_(void)
 {
-    while (atomic_flag_test_and_set_explicit(&ls_malloc_meta_.spinlock, memory_order_acquire))
+    while (atomic_flag_test_and_set_explicit(&ls_lalloc_meta_.spinlock, memory_order_acquire))
     {
         ;
     }
 }
 
-static LS_INLINE void ls_malloc_spinunlock_(void)
+static LS_INLINE void ls_lalloc_spinunlock_(void)
 {
-    atomic_flag_clear_explicit(&ls_malloc_meta_.spinlock, memory_order_release);
+    atomic_flag_clear_explicit(&ls_lalloc_meta_.spinlock, memory_order_release);
 }
 
 
-#endif  /* #if !defined(LS_MALLOC_IMPL) */
-#endif  /* #if !defined(LS_MALLOC_INC_) */
+#endif  /* #if !defined(LS_LALLOC_IMPL) */
+#endif  /* #if !defined(LS_LALLOC_INC_) */
