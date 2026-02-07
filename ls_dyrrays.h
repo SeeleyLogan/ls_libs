@@ -1,5 +1,87 @@
 /*
- * ls_dyrrays.h - v1.0.0 - Dynamic Arrays - Logan Seeley 2025
+ * ls_dyrrays.h - v2.0 - Dynamic Arrays - Logan Seeley 2025
+ *
+ * Overview
+ *
+ *  This library leverages its dependency ls_lalloc.h
+ *  to create fast-growing dynamic arrays, without
+ *  fragmentation. Much of the implementation was
+ *  referenced directly from Sean Barrett (nothings)'s
+ *  stb_ds.h.
+ *
+ * Documentation
+ *
+ *  Compilation
+ *
+ *      Refer to ls_lalloc.h
+ *
+ *  Usage
+ *
+ *      This library depends on ls_lalloc.h and its
+ *      dependency ls_macros.h.
+ * 
+ *      This file contains only macros and
+ *      translation unit (TU) local functions, meaning
+ *      it is intended to be included whenever it
+ *      is intended to be used.
+ * 
+ *      If a dynamic array is created without a heap
+ *      specified, it will use the first heap created 
+ *      by lalloc's new_heap. Meaning you should only
+ *      free that heap at the end of the program.
+ * 
+ *      That also means you must create a heap before
+ *      creating any dynamic arrays.
+ * 
+ *      Dynamic arrays are created whenever [dypush],
+ *      [dysetlen], and [dysetheap] are called with a
+ *      null-pointer passed in.
+ * 
+ *      Recommended usage is to create the dynamic
+ *      array by setting the heap with [dysetheap],
+ *      then setting the starting array size with
+ *      [dysetlen].
+ * 
+ *      All dynamic arrays are continuous memory,
+ *      meaning accessing elements is as simple as
+ *      array[i] = value.
+ * 
+ *      Array size changes may cause the dynamic array
+ *      passed to the resizing macro to be changed.
+ *      To avoid use-after-moves, only have one
+ *      dynamic array location, and use references
+ *      for any copy.
+ * 
+ *  dypush(dyrray, value)
+ *      Extends the dynamic array by pushing value
+ *      to the end of the array.
+ * 
+ *  dydel(dyrray, index)
+ *      Swap-pops element at [index] with
+ *      element at end of dynamic array.
+ *      Does not return the deleted element.
+ * 
+ *  dypop(dyrray)
+ *      Deletes the last element of the
+ *      dynamic array. Does not return
+ *      the deleted element.
+ * 
+ *  dylen(dyrray)
+ *      Returns the length in elements of
+ *      the dynamic array as a u64.
+ * 
+ *  dysetlen(dyrray, length)
+ *      Sets the length (in elements) of the
+ *      array.
+ * 
+ *  dysetheap(dyrray, heap)
+ *      This can be called at any point during
+ *      the dynamic array's lifetime: it
+ *      copies the content of the dyrray to
+ *      a new dynamic array on the specified heap.
+ * 
+ *  dyfree(dyrray)
+ *      Frees the memory of a dynamic array.
  */
 
 
@@ -8,11 +90,13 @@
 
 
 #if !defined(LS_DYRRAYS_PREFIX_NAMES)
-    #define dypush   ls_dypush
-    #define dydel    ls_dydel
-    #define dypop    ls_dypop
-    #define dylen    ls_dylen
-    #define dysetlen ls_dysetlen
+    #define dypush      ls_dypush
+    #define dydel       ls_dydel
+    #define dypop       ls_dypop
+    #define dylen       ls_dylen
+    #define dysetlen    ls_dysetlen
+    #define dysetheap   ls_dysetheap 
+    #define dyfree      ls_dyfree
 #endif
 
 
@@ -30,21 +114,23 @@ typedef struct
     /* length and capacity in elements */
     ls_u64_t length;
     ls_u64_t capacity;
+    ls_lalloc_heap_t heap;
 }
-ls_dyrrays_header_s_;
+ls_dyrrays_header_st_;
 
 
-static void* ls_dysetsize_(void* dyrray, ls_u64_t element_c, ls_u64_t element_z);
+static void* ls_dysetsize_ (void* dyrray, ls_u64_t element_c, ls_u64_t element_z);
+static void* ls_dymoveheap_(void* dyrray, ls_u64_t element_c, ls_u64_t element_z, ls_lalloc_heap_t heap);
 
 
-#define ls_dyheader_(a) (*((ls_dyrrays_header_s_*) (a) - 1))
+#define ls_dyheader_(a) (*((ls_dyrrays_header_st_*) (a) - 1))
 
 #define ls_dyfit_(dyrray, ele_c) ((                             \
     ((dyrray) == LS_NULL)                                       \
     || ((ele_c) > ls_dyheader_(dyrray).capacity)                \
     || (((ele_c) < (ls_dyheader_(dyrray).capacity / 4))         \
     && (ele_c) > 16)) ?                                         \
-    ls_dysetsize_(dyrray, ele_c, sizeof(*dyrray)) :             \
+    ls_dysetsize_(dyrray, ele_c, sizeof(*(dyrray))) :           \
     (ls_dyheader_(dyrray).length += ele_c - ls_dyheader_(dyrray).length, dyrray))
 
 #define ls_dygrow_check_(dyrray, ele_c) ((                      \
@@ -69,24 +155,55 @@ static void* ls_dysetsize_(void* dyrray, ls_u64_t element_c, ls_u64_t element_z)
 
 #define ls_dysetlen(dyrray, n) ((dyrray) = ls_dyfit_(dyrray, n))
 
+#define ls_dysetheap(dyrray, heap) (                            \
+    (dyrray) = ls_dygrow_check_(dyrray, 0),                     \
+    (dyrray) = ls_dymoveheap_(dyrray,                           \
+        ls_dyheader_(dyrray).length, sizeof(*(dyrray)),         \
+        heap))
+
+#define ls_dyfree(dyrray) (                                     \
+    ls_lfree(ls_dyheader_(dyrray).heap,                         \
+    LS_PARITHM(dyrray) - LS_MAX(sizeof(ls_dyrrays_header_st_),  \
+    sizeof(*dyrray))))
+
 
 static LS_INLINE void* ls_dysetsize_(void* dyrray, ls_u64_t element_c, ls_u64_t element_z)
 {
-    ls_u64_t raw_z_needed     = element_c * element_z + sizeof(ls_dyrrays_header_s_);
-    ls_u64_t aligned_z_needed = LS_ALIGN_UP(raw_z_needed, element_z);
+    ls_u64_t aligned_z_needed = LS_ALIGN_UP(element_c * element_z + sizeof(ls_dyrrays_header_st_), element_z);
     ls_u64_t actual_z_needed  = LS_MAX(LS_DYRRAYS_MIN_Z_, 1llu << LS_CEIL_LOG2(aligned_z_needed));
 
-    ls_u64_t new_capacity     = (actual_z_needed - LS_ALIGN_UP(sizeof(ls_dyrrays_header_s_),
+    ls_u64_t new_capacity     = (actual_z_needed - LS_ALIGN_UP(sizeof(ls_dyrrays_header_st_),
         element_z)) / element_z;
     
     void* dyrray_base_p = (dyrray != LS_NULL) ?
-        (LS_PARITHM(dyrray) - LS_MAX(sizeof(ls_dyrrays_header_s_), element_z)) :
+        (LS_PARITHM(dyrray) - LS_MAX(sizeof(ls_dyrrays_header_st_), element_z)) :
         LS_NULL;
 
-    void* new_dyrray = LS_PARITHM(ls_relalloc(dyrray_base_p, actual_z_needed)) + LS_MAX(sizeof(ls_dyrrays_header_s_), element_z);
+    void* new_dyrray = (dyrray != LS_NULL) ?
+        LS_PARITHM(ls_relalloc(ls_dyheader_(dyrray).heap, dyrray_base_p, actual_z_needed)) + LS_MAX(sizeof(ls_dyrrays_header_st_), element_z) :
+        LS_PARITHM(ls_relalloc(1, dyrray_base_p, actual_z_needed)) + LS_MAX(sizeof(ls_dyrrays_header_st_), element_z);  /* heap 1 is first heap created/default heap */
 
     ls_dyheader_(new_dyrray).capacity = new_capacity;
     ls_dyheader_(new_dyrray).length = element_c;
+    if (dyrray == LS_NULL) { ls_dyheader_(new_dyrray).heap = 0; }
+
+    return new_dyrray;
+}
+
+static LS_INLINE void* ls_dymoveheap_(void* dyrray, ls_u64_t element_c, ls_u64_t element_z, ls_lalloc_heap_t heap)
+{
+    /* TODO: leverage O(1) memove capabilities on linux, and perhaps windows later on */
+
+    ls_u64_t aligned_z_needed = LS_ALIGN_UP(element_c * element_z + sizeof(ls_dyrrays_header_st_), element_z);
+    ls_u64_t actual_z_needed  = LS_MAX(LS_DYRRAYS_MIN_Z_, 1llu << LS_CEIL_LOG2(aligned_z_needed));
+    
+    void* dyrray_base_p = LS_PARITHM(dyrray) - LS_MAX(sizeof(ls_dyrrays_header_st_), element_z);
+    void* new_dyrray_base_p = ls_lalloc(heap, actual_z_needed);
+    void* new_dyrray = LS_PARITHM(new_dyrray_base_p) + LS_MAX(sizeof(ls_dyrrays_header_st_), element_z);
+
+    LS_MEMCPY(new_dyrray_base_p, dyrray_base_p, actual_z_needed);
+
+    ls_dyheader_(new_dyrray).heap = heap;
 
     return new_dyrray;
 }
