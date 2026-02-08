@@ -1,5 +1,5 @@
 /*
- * ls_lalloc.h - v3.0 - Layered Memory Allocator - Logan Seeley 2026
+ * ls_lalloc.h - v3.2 - Layered Memory Allocator - Logan Seeley 2026
  *
  * Overview
  *
@@ -68,7 +68,7 @@
  *      rounded up to the nearest exponent
  *      of 2, or NULL on fail.
  *
- *  void* relalloc(heap_t heap, void* mem_p, u64_t size)
+ *  void* relalloc(heap_t src_heap, heap_t dst_heap, void* mem_p, u64_t size)
  *      Copies the contents of [mem] into a new
  *      allocation of [size] rounded up to the
  *      nearest exponent of 2, or NULL on fail.
@@ -116,9 +116,9 @@ typedef ls_u8_t ls_lalloc_heap_t;
     extern ls_lalloc_heap_t ls_lalloc_new_heap (ls_u64_t         max_alloc_z);
     extern void             ls_lalloc_free_heap(ls_lalloc_heap_t heap);
 
-    extern void* ls_lalloc  (ls_lalloc_heap_t heap_id, ls_u64_t size);
-    extern void* ls_relalloc(ls_lalloc_heap_t heap_id, void*    mem, ls_u64_t size);
-    extern void  ls_lfree   (ls_lalloc_heap_t heap_id, void*    mem);
+    extern void* ls_lalloc  (ls_lalloc_heap_t heap,     ls_u64_t         size);
+    extern void* ls_relalloc(ls_lalloc_heap_t src_heap, ls_lalloc_heap_t dst_heap, void*    mem, ls_u64_t size);
+    extern void  ls_lfree   (ls_lalloc_heap_t heap,     void*            mem);
 
 #else
 
@@ -194,9 +194,9 @@ static ls_lalloc_heap_st_ ls_lalloc_heap_sa_[256];
 
 ls_lalloc_heap_t ls_lalloc_new_heap(ls_u64_t max_alloc_z);
 
-void* ls_lalloc  (ls_lalloc_heap_t heap, ls_u64_t size);
-void* ls_relalloc(ls_lalloc_heap_t heap, void*    mem_p, ls_u64_t size);
-void  ls_lfree   (ls_lalloc_heap_t heap, void*    mem_p);
+void* ls_lalloc  (ls_lalloc_heap_t heap,     ls_u64_t         size);
+void* ls_relalloc(ls_lalloc_heap_t src_heap, ls_lalloc_heap_t dst_heap, void*    mem_p, ls_u64_t size);
+void  ls_lfree   (ls_lalloc_heap_t heap,     void*            mem_p);
 
 static void* ls_lalloc_layer_get_spot_    (ls_lalloc_heap_st_* heap_sp, ls_u8_t layer_i);
 static void* ls_lalloc_layer_get_del_spot_(ls_lalloc_heap_st_* heap_sp, ls_u8_t layer_i);
@@ -215,11 +215,11 @@ ls_lalloc_heap_t ls_lalloc_new_heap(ls_u64_t max_alloc_z)
 
     if (max_alloc_z == 0)
     {
-        layer_z = 1llu << LS_CEIL_LOG2(ls_lalloc_memtotal_());
+        layer_z = LS_CEIL_POW2(ls_lalloc_memtotal_());
     }
     else
     {
-        layer_z = LS_MAX(1llu << LS_CEIL_LOG2(max_alloc_z), ls_lalloc_page_size_());
+        layer_z = LS_MAX(LS_CEIL_POW2(max_alloc_z), ls_lalloc_page_size_());
     }
 
     ls_lalloc_spinlock_(&ls_lalloc_global_spinlock_);
@@ -304,7 +304,7 @@ void* ls_lalloc(ls_lalloc_heap_t heap, ls_u64_t size)
         return LS_NULL;
     }
 
-    ls_u64_t block_z = 1llu << LS_CEIL_LOG2(LS_MAX(size, LS_LALLOC_MIN_Z_));
+    ls_u64_t block_z = LS_CEIL_POW2(LS_MAX(size, LS_LALLOC_MIN_Z_));
     ls_u8_t layer_i  = LS_CEIL_LOG2(LS_MAX(size, LS_LALLOC_MIN_Z_)) - LS_LALLOC_MIN_Z_LOG2_;
 
     void* spot_p = ls_lalloc_layer_get_spot_(heap_sp, layer_i);
@@ -324,43 +324,48 @@ void* ls_lalloc(ls_lalloc_heap_t heap, ls_u64_t size)
     return spot_p;
 }
 
-void* ls_relalloc(ls_lalloc_heap_t heap, void* mem_p, ls_u64_t size)
+void* ls_relalloc(ls_lalloc_heap_t src_heap, ls_lalloc_heap_t dst_heap, void* mem_p, ls_u64_t size)
 {
     if (mem_p == LS_NULL)
     {
-        return ls_lalloc(heap, size);
+        return ls_lalloc(dst_heap, size);
     }
 
-    ls_lalloc_heap_st_* heap_sp = &(ls_lalloc_heap_sa_[heap - 1]);
+    ls_lalloc_heap_st_* src_heap_sp = &(ls_lalloc_heap_sa_[src_heap - 1]);
+    ls_lalloc_heap_st_* dst_heap_sp = &(ls_lalloc_heap_sa_[dst_heap - 1]);
 
-    ls_lalloc_spinlock_(&heap_sp->spinlock);
+    ls_lalloc_spinlock_(&src_heap_sp->spinlock);
+    if (dst_heap != src_heap)
+    {
+        ls_lalloc_spinlock_(&dst_heap_sp->spinlock);
+    }
 
-    ls_u64_t block_z = 1llu << LS_CEIL_LOG2(LS_MAX(size, LS_LALLOC_MIN_Z_));
+    ls_u64_t block_z = LS_CEIL_POW2(LS_MAX(size, LS_LALLOC_MIN_Z_));
 
     ls_u8_t new_layer_i  = LS_CEIL_LOG2(LS_MAX(size, LS_LALLOC_MIN_Z_)) - LS_LALLOC_MIN_Z_LOG2_;
-    ls_u8_t old_layer_i = LS_CAST(LS_PARITHM(mem_p) - LS_PARITHM(heap_sp->vspace_p), ls_u64_t) / heap_sp->layer_z;
+    ls_u8_t old_layer_i = LS_CAST(LS_PARITHM(mem_p) - LS_PARITHM(src_heap_sp->vspace_p), ls_u64_t) / src_heap_sp->layer_z;
 
-    void* spot_p = ls_lalloc_layer_get_spot_(heap_sp, new_layer_i);
+    void* spot_p = ls_lalloc_layer_get_spot_(dst_heap_sp, new_layer_i);
 
     /* compiler should optimize out the if-statement on windows while the
      * copy threshold is u64 max */
-    if (heap_sp->header_a[new_layer_i].block_z <= LS_LALLOC_MEMCPY_THRES)
+    if (src_heap_sp->header_a[new_layer_i].block_z <= LS_LALLOC_MEMCPY_THRES)
     {
         #if defined(LS_WINDOWS_OS)
-            VirtualAllocEx(heap_sp->proc_h,
-                LS_CAST(LS_ALIGN_DOWN(LS_CAST(spot_p, ls_u64_t), heap_sp->page_z), void*),
-                LS_ALIGN_UP(block_z, heap_sp->page_z), MEM_COMMIT, PAGE_READWRITE);
+            VirtualAllocEx(dst_heap_sp->proc_h,
+                LS_CAST(LS_ALIGN_DOWN(LS_CAST(spot_p, ls_u64_t), dst_heap_sp->page_z), void*),
+                LS_ALIGN_UP(block_z, dst_heap_sp->page_z), MEM_COMMIT, PAGE_READWRITE);
         #elif defined(LS_UNIX_OS)
-            mprotect(LS_CAST(LS_ALIGN_DOWN(LS_CAST(spot_p, ls_u64_t), heap_sp->page_z), void*),
-                LS_ALIGN_UP(block_z, heap_sp->page_z), PROT_READ | PROT_WRITE);
+            mprotect(LS_CAST(LS_ALIGN_DOWN(LS_CAST(spot_p, ls_u64_t), dst_heap_sp->page_z), void*),
+                LS_ALIGN_UP(block_z, dst_heap_sp->page_z), PROT_READ | PROT_WRITE);
         #endif
 
-        LS_MEMCPY(spot_p, mem_p, LS_MIN(heap_sp->header_a[old_layer_i].block_z,
-            heap_sp->header_a[new_layer_i].block_z));
+        LS_MEMCPY(spot_p, mem_p, LS_MIN(src_heap_sp->header_a[old_layer_i].block_z,
+            dst_heap_sp->header_a[new_layer_i].block_z));
     }
     else
     {
-        #define LS_HEADER_TMP_ heap_sp->header_a[old_layer_i]
+        #define LS_HEADER_TMP_ src_heap_sp->header_a[old_layer_i]
 
         #if defined(LS_WINDOWS_OS)
             // #warning "incomplete windows implementation"
@@ -374,15 +379,19 @@ void* ls_relalloc(ls_lalloc_heap_t heap, void* mem_p, ls_u64_t size)
                 LS_HEADER_TMP_.block_z, PROT_READ | PROT_WRITE);
             
             mprotect(mem_p,
-                heap_sp->page_z, PROT_READ | PROT_WRITE);
+                src_heap_sp->page_z, PROT_READ | PROT_WRITE);
         #endif  /* #if defined(LS_WINDOWS_OS) */
     
         #undef LS_HEADER_TMP_
     }
 
-    ls_lalloc_layer_del_spot_(heap_sp, old_layer_i, mem_p);
+    ls_lalloc_layer_del_spot_(src_heap_sp, old_layer_i, mem_p);
 
-    ls_lalloc_spinunlock_(&heap_sp->spinlock);
+    ls_lalloc_spinunlock_(&src_heap_sp->spinlock);
+    if (dst_heap != src_heap)
+    {
+        ls_lalloc_spinunlock_(&dst_heap_sp->spinlock);
+    }
 
     return spot_p;
 }
@@ -574,6 +583,10 @@ static LS_INLINE void ls_lalloc_spinunlock_(atomic_flag* spinlock_p)
 {
     atomic_flag_clear_explicit(spinlock_p, memory_order_release);
 }
+
+
+#undef LS_LALLOC_MIN_Z_
+#undef LS_LALLOC_MIN_Z_LOG2_
 
 
 #endif  /* #if !defined(LS_LALLOC_IMPL) */
