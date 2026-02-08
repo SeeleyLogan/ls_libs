@@ -1,5 +1,5 @@
 /*
- * ls_dyrrays.h - v2.0 - Dynamic Arrays - Logan Seeley 2025
+ * ls_dyrrays.h - v2.1 - Dynamic Arrays - Logan Seeley 2026
  *
  * Overview
  *
@@ -121,6 +121,7 @@ ls_dyrrays_header_st_;
 
 static void* ls_dysetsize_ (void* dyrray, ls_u64_t element_c, ls_u64_t element_z);
 static void* ls_dymoveheap_(void* dyrray, ls_u64_t element_c, ls_u64_t element_z, ls_lalloc_heap_t heap);
+static void* ls_dydupe_    (void* dyrray, ls_u64_t element_c, ls_u64_t element_z);
 
 
 #define ls_dyheader_(a) (*((ls_dyrrays_header_st_*) (a) - 1))
@@ -131,7 +132,8 @@ static void* ls_dymoveheap_(void* dyrray, ls_u64_t element_c, ls_u64_t element_z
     || (((ele_c) < (ls_dyheader_(dyrray).capacity / 4))         \
     && (ele_c) > 16)) ?                                         \
     ls_dysetsize_(dyrray, ele_c, sizeof(*(dyrray))) :           \
-    (ls_dyheader_(dyrray).length += ele_c - ls_dyheader_(dyrray).length, dyrray))
+    (ls_dyheader_(dyrray).length +=                             \
+        ele_c - ls_dyheader_(dyrray).length, dyrray))
 
 #define ls_dygrow_check_(dyrray, ele_c) ((                      \
     ((dyrray) == LS_NULL)) ?                                    \
@@ -149,17 +151,27 @@ static void* ls_dymoveheap_(void* dyrray, ls_u64_t element_c, ls_u64_t element_z
     (dyrray)[i] = (dyrray)[ls_dyheader_(dyrray).length - 1],    \
     (dyrray) = ls_dyshrink_check_(dyrray, 1))
 
-#define ls_dypop(dyrray) ls_dydel(dyrray, ls_dyheader_(dyrray).length - 1)
+#define ls_dydupe(dyrray) (ls_dydupe_(dyrray,                   \
+    ls_dyheader_(dyrray).length, sizeof(*dyrray)))
 
-#define ls_dylen(dyrray) (((dyrray) == LS_NULL) ? 0 : ls_dyheader_(dyrray).length)
+#define ls_dypop(dyrray) ls_dydel(dyrray,                       \
+    ls_dyheader_(dyrray).length - 1)
+
+#define ls_dylen(dyrray) (((dyrray) == LS_NULL) ?               \
+    0 : ls_dyheader_(dyrray).length)
 
 #define ls_dysetlen(dyrray, n) ((dyrray) = ls_dyfit_(dyrray, n))
 
+/* TODO: fix setheap
+ * it because of how the current implementation works,
+ * the array can possibly be created then shrunk, causing 
+ * an off by alloc size error or something idk fix tmr */
 #define ls_dysetheap(dyrray, heap) (                            \
-    (dyrray) = ls_dygrow_check_(dyrray, 0),                     \
+    (dyrray) = ls_dygrow_check_(dyrray, 1),                     \
     (dyrray) = ls_dymoveheap_(dyrray,                           \
         ls_dyheader_(dyrray).length, sizeof(*(dyrray)),         \
-        heap))
+        heap),                                                  \
+    ls_dyheader_(dyrray).length -= 1)
 
 #define ls_dyfree(dyrray) (                                     \
     ls_lfree(ls_dyheader_(dyrray).heap,                         \
@@ -170,7 +182,7 @@ static void* ls_dymoveheap_(void* dyrray, ls_u64_t element_c, ls_u64_t element_z
 static LS_INLINE void* ls_dysetsize_(void* dyrray, ls_u64_t element_c, ls_u64_t element_z)
 {
     ls_u64_t aligned_z_needed = LS_ALIGN_UP(element_c * element_z + sizeof(ls_dyrrays_header_st_), element_z);
-    ls_u64_t actual_z_needed  = LS_MAX(LS_DYRRAYS_MIN_Z_, 1llu << LS_CEIL_LOG2(aligned_z_needed));
+    ls_u64_t actual_z_needed  = LS_MAX(LS_DYRRAYS_MIN_Z_, LS_CEIL_POW2(aligned_z_needed));
 
     ls_u64_t new_capacity     = (actual_z_needed - LS_ALIGN_UP(sizeof(ls_dyrrays_header_st_),
         element_z)) / element_z;
@@ -180,34 +192,40 @@ static LS_INLINE void* ls_dysetsize_(void* dyrray, ls_u64_t element_c, ls_u64_t 
         LS_NULL;
 
     void* new_dyrray = (dyrray != LS_NULL) ?
-        LS_PARITHM(ls_relalloc(ls_dyheader_(dyrray).heap, dyrray_base_p, actual_z_needed)) + LS_MAX(sizeof(ls_dyrrays_header_st_), element_z) :
-        LS_PARITHM(ls_relalloc(1, dyrray_base_p, actual_z_needed)) + LS_MAX(sizeof(ls_dyrrays_header_st_), element_z);  /* heap 1 is first heap created/default heap */
+        LS_PARITHM(ls_relalloc(ls_dyheader_(dyrray).heap, ls_dyheader_(dyrray).heap, dyrray_base_p, actual_z_needed)) + LS_MAX(sizeof(ls_dyrrays_header_st_), element_z) :
+        LS_PARITHM(ls_relalloc(1, 1, dyrray_base_p, actual_z_needed)) + LS_MAX(sizeof(ls_dyrrays_header_st_), element_z);  /* heap 1 is first heap created/default heap */
 
     ls_dyheader_(new_dyrray).capacity = new_capacity;
     ls_dyheader_(new_dyrray).length = element_c;
-    if (dyrray == LS_NULL) { ls_dyheader_(new_dyrray).heap = 0; }
+    if (dyrray == LS_NULL) { ls_dyheader_(new_dyrray).heap = 1; }
 
     return new_dyrray;
 }
 
 static LS_INLINE void* ls_dymoveheap_(void* dyrray, ls_u64_t element_c, ls_u64_t element_z, ls_lalloc_heap_t heap)
 {
-    /* TODO: leverage O(1) memove capabilities on linux, and perhaps windows later on */
+    /* TODO: leverage O(1) mem-move capabilities on linux, and perhaps windows later on */
 
     ls_u64_t aligned_z_needed = LS_ALIGN_UP(element_c * element_z + sizeof(ls_dyrrays_header_st_), element_z);
-    ls_u64_t actual_z_needed  = LS_MAX(LS_DYRRAYS_MIN_Z_, 1llu << LS_CEIL_LOG2(aligned_z_needed));
+    ls_u64_t actual_z_needed  = LS_MAX(LS_DYRRAYS_MIN_Z_, LS_CEIL_POW2(aligned_z_needed));
     
     void* dyrray_base_p = LS_PARITHM(dyrray) - LS_MAX(sizeof(ls_dyrrays_header_st_), element_z);
-    void* new_dyrray_base_p = ls_lalloc(heap, actual_z_needed);
+    void* new_dyrray_base_p = ls_relalloc(ls_dyheader_(dyrray).heap, heap, dyrray_base_p, actual_z_needed);
     void* new_dyrray = LS_PARITHM(new_dyrray_base_p) + LS_MAX(sizeof(ls_dyrrays_header_st_), element_z);
-
-    LS_MEMCPY(new_dyrray_base_p, dyrray_base_p, actual_z_needed);
 
     ls_dyheader_(new_dyrray).heap = heap;
 
     return new_dyrray;
 }
 
+static LS_INLINE void* ls_dydupe_(void* dyrray, ls_u64_t element_c, ls_u64_t element_z)
+{
+    void* new_dyrray = ls_dysetsize_(LS_NULL, element_c, element_z);
+
+    LS_MEMCPY(new_dyrray, dyrray, element_c * element_z);
+
+    return new_dyrray;
+}
 
 #endif  /* #if !defined(LS_DYRRAYS_INC_) */
 
