@@ -52,11 +52,16 @@
  *      dynamic array location, and use references
  *      for any copy.
  * 
- *  void dypush(dyrray, value)
+ *      The [dyrray] parameters below are pointers
+ *      to whatever element type you want your
+ *      dynamic array to be. They can all be NULL,
+ *      in which case a new array is created.
+ * 
+ *  void dypush(dyrray, typeof(*dyrray) value)
  *      Extends the dynamic array by pushing value
  *      to the end of the array.
  * 
- *  void dydel(dyrray, index)
+ *  void dydel(dyrray, u64_t index)
  *      Swap-pops element at [index] with
  *      element at end of dynamic array.
  *      Does not return the deleted element.
@@ -75,11 +80,11 @@
  *      Returns the length in elements of
  *      the dynamic array as a u64.
  * 
- *  void dysetlen(dyrray, length)
+ *  void dysetlen(dyrray, u64_t length)
  *      Sets the length (in elements) of the
  *      array.
  * 
- *  void dysetheap(dyrray, heap)
+ *  void dysetheap(dyrray, heap_t heap)
  *      This can be called at any point during
  *      the dynamic array's lifetime: it
  *      copies the content of the dyrray to
@@ -127,9 +132,9 @@ typedef struct
 ls_dyrrays_header_st_;
 
 
-static void* ls_dysetsize_ (void* dyrray, ls_u64_t element_c, ls_u64_t element_z);
-static void* ls_dymoveheap_(void* dyrray, ls_u64_t element_c, ls_u64_t element_z, ls_lalloc_heap_t heap);
-static void* ls_dydupe_    (void* dyrray, ls_u64_t element_c, ls_u64_t element_z);
+static void* ls_dysetsize_ (void* dyrray, ls_u64_t element_c, ls_u64_t element_z)                        LS_LIBFN;
+static void* ls_dymoveheap_(void* dyrray, ls_u64_t element_c, ls_u64_t element_z, ls_lalloc_heap_t heap) LS_LIBFN;
+static void* ls_dydupe_    (void* dyrray, ls_u64_t element_c, ls_u64_t element_z)                        LS_LIBFN;
 
 
 #define ls_dyheader_(a) (*((ls_dyrrays_header_st_*) (a) - 1))
