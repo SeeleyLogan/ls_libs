@@ -1,5 +1,5 @@
 /*
- * ls_dyrrays.h - v2.1 - Dynamic Arrays - Logan Seeley 2026
+ * ls_dyrrays.h - v2.2 - Dynamic Arrays - Logan Seeley 2026
  *
  * Overview
  *
@@ -95,6 +95,7 @@
 
 
 #if !defined(LS_DYRRAYS_PREFIX_NAMES)
+
     #define dypush      ls_dypush
     #define dydel       ls_dydel
     #define dydupe      ls_dydupe
@@ -103,6 +104,7 @@
     #define dysetlen    ls_dysetlen
     #define dysetheap   ls_dysetheap 
     #define dyfree      ls_dyfree
+
 #endif
 
 
