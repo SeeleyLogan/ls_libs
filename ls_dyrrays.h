@@ -52,35 +52,40 @@
  *      dynamic array location, and use references
  *      for any copy.
  * 
- *  dypush(dyrray, value)
+ *  void dypush(dyrray, value)
  *      Extends the dynamic array by pushing value
  *      to the end of the array.
  * 
- *  dydel(dyrray, index)
+ *  void dydel(dyrray, index)
  *      Swap-pops element at [index] with
  *      element at end of dynamic array.
  *      Does not return the deleted element.
  * 
- *  dypop(dyrray)
+ *  void* dydupe(dyrray)
+ *      Creates a new dynamic array of same
+ *      size as [dyrray], and fills it with
+ *      same contents of [dyrray].
+ * 
+ *  void dypop(dyrray)
  *      Deletes the last element of the
  *      dynamic array. Does not return
  *      the deleted element.
  * 
- *  dylen(dyrray)
+ *  void dylen(dyrray)
  *      Returns the length in elements of
  *      the dynamic array as a u64.
  * 
- *  dysetlen(dyrray, length)
+ *  void dysetlen(dyrray, length)
  *      Sets the length (in elements) of the
  *      array.
  * 
- *  dysetheap(dyrray, heap)
+ *  void dysetheap(dyrray, heap)
  *      This can be called at any point during
  *      the dynamic array's lifetime: it
  *      copies the content of the dyrray to
  *      a new dynamic array on the specified heap.
  * 
- *  dyfree(dyrray)
+ *  void dyfree(dyrray)
  *      Frees the memory of a dynamic array.
  */
 
@@ -92,6 +97,7 @@
 #if !defined(LS_DYRRAYS_PREFIX_NAMES)
     #define dypush      ls_dypush
     #define dydel       ls_dydel
+    #define dydupe      ls_dydupe
     #define dypop       ls_dypop
     #define dylen       ls_dylen
     #define dysetlen    ls_dysetlen
@@ -162,10 +168,6 @@ static void* ls_dydupe_    (void* dyrray, ls_u64_t element_c, ls_u64_t element_z
 
 #define ls_dysetlen(dyrray, n) ((dyrray) = ls_dyfit_(dyrray, n))
 
-/* TODO: fix setheap
- * it because of how the current implementation works,
- * the array can possibly be created then shrunk, causing 
- * an off by alloc size error or something idk fix tmr */
 #define ls_dysetheap(dyrray, heap) (                            \
     (dyrray) = ls_dygrow_check_(dyrray, 1),                     \
     (dyrray) = ls_dymoveheap_(dyrray,                           \
